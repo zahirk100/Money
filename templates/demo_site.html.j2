@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ lead.name }}{% if lead.city %} - {{ niche_label }} in {{ lead.city }}{% endif %}</title>
+<meta name="description" content="{{ meta_description }}">
+<meta name="robots" content="noindex, nofollow">
+<style>
+  :root{
+    --ink:#12151a; --muted:#5b6472; --line:#e4e7ec; --bg:#ffffff; --soft:#f6f7f9;
+    --brand:{{ brand }}; --brand-ink:#ffffff; --radius:14px;
+    --font:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:var(--font);color:var(--ink);background:var(--bg);line-height:1.6;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1060px;margin:0 auto;padding:0 20px}
+  header{position:sticky;top:0;background:rgba(255,255,255,.94);backdrop-filter:blur(8px);border-bottom:1px solid var(--line);z-index:20}
+  .bar{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 0}
+  .logo{font-weight:700;font-size:1.05rem;letter-spacing:-.01em}
+  .logo span{color:var(--brand)}
+  .nav{display:none;gap:26px}
+  .nav a{color:var(--muted);text-decoration:none;font-size:.95rem}
+  .nav a:hover{color:var(--ink)}
+  .btn{display:inline-block;background:var(--brand);color:var(--brand-ink);padding:11px 20px;border-radius:999px;
+       text-decoration:none;font-weight:600;font-size:.95rem;white-space:nowrap}
+  .btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}
+  .hero{padding:64px 0 56px;background:linear-gradient(180deg,var(--soft),#fff)}
+  .hero h1{font-size:clamp(2rem,6vw,3.3rem);line-height:1.1;margin:.2em 0 .35em;letter-spacing:-.03em}
+  .hero p.lead{font-size:1.15rem;color:var(--muted);max-width:56ch;margin:0 0 28px}
+  .eyebrow{display:inline-block;background:#fff;border:1px solid var(--line);color:var(--muted);
+           padding:6px 14px;border-radius:999px;font-size:.82rem;font-weight:600}
+  .cta-row{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+  section{padding:56px 0;border-top:1px solid var(--line)}
+  h2{font-size:clamp(1.4rem,3.4vw,2rem);letter-spacing:-.02em;margin:0 0 8px}
+  .sub{color:var(--muted);margin:0 0 32px;max-width:60ch}
+  .grid{display:grid;gap:18px;grid-template-columns:1fr}
+  .card{border:1px solid var(--line);border-radius:var(--radius);padding:22px;background:#fff}
+  .card h3{margin:0 0 6px;font-size:1.05rem}
+  .card p{margin:0;color:var(--muted);font-size:.95rem}
+  .hours{width:100%;border-collapse:collapse}
+  .hours td{padding:10px 0;border-bottom:1px solid var(--line);font-size:.97rem}
+  .hours td:last-child{text-align:right;color:var(--muted)}
+  .contact{display:grid;gap:26px;grid-template-columns:1fr}
+  .contact a{color:var(--ink)}
+  .big-link{display:block;font-size:1.35rem;font-weight:700;text-decoration:none;letter-spacing:-.01em}
+  footer{padding:34px 0;color:var(--muted);font-size:.88rem;border-top:1px solid var(--line)}
+  .demo-note{background:#111827;color:#e5e7eb;padding:12px 0;font-size:.85rem}
+  .demo-note strong{color:#fff}
+  .demo-note a{color:#93c5fd}
+  @media(min-width:760px){
+    .nav{display:flex}
+    .grid{grid-template-columns:repeat(3,1fr)}
+    .contact{grid-template-columns:1.1fr .9fr}
+  }
+</style>
+</head>
+<body>
+
+<div class="demo-note">
+  <div class="wrap">
+    <strong>Vrijblijvend voorbeeld.</strong> Deze pagina is als voorstel gemaakt door
+    {{ sender.company_name }} en is <strong>geen offici&euml;le website van {{ lead.name }}</strong>.
+    Vragen of aanpassingen? <a href="mailto:{{ sender.sender_email }}">{{ sender.sender_email }}</a>
+  </div>
+</div>
+
+<header>
+  <div class="wrap bar">
+    <div class="logo">{{ lead.name }}<span>.</span></div>
+    <nav class="nav">
+      <a href="#diensten">Diensten</a>
+      <a href="#openingstijden">Openingstijden</a>
+      <a href="#contact">Contact</a>
+    </nav>
+    {% if lead.phone %}<a class="btn" href="tel:{{ phone_href }}">Bel {{ lead.phone }}</a>
+    {% else %}<a class="btn" href="#contact">Contact</a>{% endif %}
+  </div>
+</header>
+
+<div class="hero">
+  <div class="wrap">
+    <span class="eyebrow">{{ niche_label|capitalize }}{% if lead.city %} in {{ lead.city }}{% endif %}</span>
+    <h1>{{ headline }}</h1>
+    <p class="lead">{{ intro }}</p>
+    <div class="cta-row">
+      {% if lead.phone %}<a class="btn" href="tel:{{ phone_href }}">Direct bellen</a>{% endif %}
+      <a class="btn ghost" href="#diensten">Bekijk wat we doen</a>
+    </div>
+  </div>
+</div>
+
+<section id="diensten">
+  <div class="wrap">
+    <h2>Waar we voor klaarstaan</h2>
+    <p class="sub">Een vaste plek waar klanten zien wat je doet - in plaats van dat ze het moeten vragen.</p>
+    <div class="grid">
+      {% for service in services %}
+      <div class="card">
+        <h3>{{ service.title }}</h3>
+        <p>{{ service.text }}</p>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+{% if hours %}
+<section id="openingstijden">
+  <div class="wrap">
+    <h2>Openingstijden</h2>
+    <p class="sub">Overgenomen uit de openbare gegevens - kloppen ze niet, dan passen we ze aan.</p>
+    <table class="hours">
+      {% for row in hours %}<tr><td>{{ row.days }}</td><td>{{ row.time }}</td></tr>{% endfor %}
+    </table>
+  </div>
+</section>
+{% endif %}
+
+<section id="contact">
+  <div class="wrap contact">
+    <div>
+      <h2>Contact</h2>
+      <p class="sub">Bellen mag altijd. Wie liever mailt of appt, krijgt hier straks een formulier
+      dat direct in je mailbox binnenkomt.</p>
+      {% if lead.phone %}<a class="big-link" href="tel:{{ phone_href }}">{{ lead.phone }}</a>{% endif %}
+      {% if lead.email %}<a class="big-link" href="mailto:{{ lead.email }}">{{ lead.email }}</a>{% endif %}
+    </div>
+    <div class="card">
+      <h3>Adres</h3>
+      <p>
+        {% if address %}{{ address }}<br>{% endif %}
+        {{ (lead.postcode or '') ~ ' ' ~ (lead.city or '') }}
+      </p>
+      {% if maps_url %}<p style="margin-top:12px"><a href="{{ maps_url }}" rel="noopener">Route bekijken</a></p>{% endif %}
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    &copy; {{ year }} {{ lead.name }}{% if lead.city %} - {{ lead.city }}{% endif %}.
+    Voorbeeldpagina gemaakt door {{ sender.company_name }}.
+  </div>
+</footer>
+
+</body>
+</html>

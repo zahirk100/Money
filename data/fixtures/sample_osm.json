@@ -1,0 +1,70 @@
+{
+  "_comment": "Volledig fictieve testdata in Overpass-formaat, zodat je de pijplijn offline kunt draaien zonder externe API. Alle namen, adressen, nummers en domeinen zijn verzonnen (example.com is gereserveerd voor documentatie).",
+  "elements": [
+    {"type": "node", "id": "9000001", "lat": 52.512, "lon": 6.092, "tags": {
+      "x:niche": "kapper", "name": "Kapsalon De Schaar", "shop": "hairdresser",
+      "addr:street": "Voorbeeldstraat", "addr:housenumber": "12", "addr:postcode": "8011 AA", "addr:city": "Zwolle",
+      "phone": "+31 6 00000001", "opening_hours": "Di-Vr 09:00-17:30; Za 09:00-16:00"}},
+
+    {"type": "node", "id": "9000002", "lat": 52.514, "lon": 6.095, "tags": {
+      "x:niche": "kapper", "name": "Hairstudio Noord", "shop": "hairdresser",
+      "addr:street": "Testlaan", "addr:housenumber": "3", "addr:city": "Zwolle",
+      "contact:facebook": "https://facebook.com/example-hairstudio-noord",
+      "website": "https://facebook.com/example-hairstudio-noord",
+      "phone": "+31 6 00000002"}},
+
+    {"type": "way", "id": "9000003", "center": {"lat": 52.508, "lon": 6.088}, "tags": {
+      "x:niche": "aannemer", "name": "Bouwbedrijf Van Voorbeeld", "craft": "builder",
+      "addr:street": "Werkweg", "addr:housenumber": "44", "addr:postcode": "8012 BB", "addr:city": "Zwolle",
+      "phone": "+31 38 0000003", "email": "info@bouwbedrijf-vanvoorbeeld.example.com",
+      "website": "https://bouwbedrijf-vanvoorbeeld.example.com"}},
+
+    {"type": "node", "id": "9000004", "lat": 52.500, "lon": 6.101, "tags": {
+      "x:niche": "installateur", "name": "Loodgietersbedrijf Kraan & Zn", "craft": "plumber",
+      "addr:street": "Buizenstraat", "addr:housenumber": "7", "addr:city": "Zwolle",
+      "phone": "+31 6 00000004", "opening_hours": "Ma-Vr 08:00-17:00"}},
+
+    {"type": "node", "id": "9000005", "lat": 52.517, "lon": 6.083, "tags": {
+      "x:niche": "installateur", "name": "Elektra Voorbeeld BV", "craft": "electrician",
+      "addr:street": "Stroomweg", "addr:housenumber": "21", "addr:city": "Zwolle",
+      "email": "contact@elektra-voorbeeld.example.org",
+      "website": "http://elektra-voorbeeld.example.org", "phone": "+31 38 0000005"}},
+
+    {"type": "node", "id": "9000006", "lat": 52.505, "lon": 6.078, "tags": {
+      "x:niche": "garage", "name": "Autobedrijf Steenwijk", "shop": "car_repair",
+      "addr:street": "Sleutelplein", "addr:housenumber": "2", "addr:postcode": "8014 CC", "addr:city": "Zwolle",
+      "phone": "+31 38 0000006", "opening_hours": "Ma-Vr 08:00-18:00; Za 09:00-13:00"}},
+
+    {"type": "node", "id": "9000007", "lat": 52.519, "lon": 6.099, "tags": {
+      "x:niche": "hovenier", "name": "Hoveniersbedrijf Groenvoorbeeld", "craft": "gardener",
+      "addr:street": "Tuinlaan", "addr:housenumber": "88", "addr:city": "Zwolle",
+      "phone": "+31 6 00000007", "email": "info@groenvoorbeeld.example.com"}},
+
+    {"type": "node", "id": "9000008", "lat": 52.503, "lon": 6.093, "tags": {
+      "x:niche": "restaurant", "name": "Eetcafe Het Voorbeeld", "amenity": "restaurant",
+      "addr:street": "Marktplein", "addr:housenumber": "5", "addr:postcode": "8011 DD", "addr:city": "Zwolle",
+      "phone": "+31 38 0000008", "opening_hours": "Wo-Zo 17:00-22:00",
+      "website": "https://het-voorbeeld.example.com", "cuisine": "dutch"}},
+
+    {"type": "node", "id": "9000009", "lat": 52.511, "lon": 6.106, "tags": {
+      "x:niche": "schoonheidssalon", "name": "Salon Mooi Voorbeeld", "shop": "beauty",
+      "addr:street": "Spiegelstraat", "addr:housenumber": "9", "addr:city": "Zwolle",
+      "phone": "+31 6 00000009"}},
+
+    {"type": "node", "id": "9000010", "lat": 52.498, "lon": 6.087, "tags": {
+      "x:niche": "kapper", "name": "Barbershop Voorbeeld", "shop": "hairdresser",
+      "addr:street": "Scheerlaan", "addr:housenumber": "14", "addr:city": "Zwolle",
+      "website": "https://barbershop-voorbeeld.example.com", "phone": "+31 6 00000010",
+      "opening_hours": "Ma-Za 10:00-19:00"}},
+
+    {"type": "node", "id": "9000011", "lat": 52.521, "lon": 6.091, "tags": {
+      "x:niche": "aannemer", "name": "Timmerbedrijf Plank", "craft": "carpenter",
+      "addr:street": "Houtweg", "addr:housenumber": "30", "addr:city": "Zwolle",
+      "phone": "+31 6 00000011"}},
+
+    {"type": "node", "id": "9000012", "lat": 52.507, "lon": 6.111, "tags": {
+      "x:niche": "garage", "name": "Garage Voorbeeld & Partners", "shop": "car_repair",
+      "addr:street": "Motorstraat", "addr:housenumber": "18", "addr:city": "Zwolle",
+      "email": "planning@garage-voorbeeld.example.org", "phone": "+31 38 0000012"}}
+  ]
+}

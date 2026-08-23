@@ -1,0 +1,35 @@
+SUBJECT: {{ subject }}
+---
+Beste {{ salutation }},
+
+{{ opener }}
+
+Daarom heb ik alvast een voorbeeldpagina voor jullie gemaakt, met de
+naam, het adres{% if lead.opening_hours %}, openingstijden{% endif %}{% if lead.phone %} en telefoonnummer{% endif %} er al in:
+
+{{ demo_url }}
+
+{% if pitches %}
+Wat me verder opviel:
+{% for pitch in pitches %}
+- {{ pitch }}
+{% endfor %}
+{% endif %}
+Als dit je aanspreekt, maak ik er {{ offer.product }} van
+voor {{ price }}, klaar binnen {{ offer.turnaround_days }} werkdagen. Zo niet, dan
+mag je de voorbeeldpagina houden - hij kost je niets.
+
+Zal ik je deze week even bellen om het door te nemen, of stuur je liever
+een berichtje terug?
+
+Met vriendelijke groet,
+{{ sender.sender_name }}
+{{ sender.company_name }}
+{% if sender.phone %}{{ sender.phone }} | {% endif %}{{ sender.sender_email }}
+{{ sender.company_address }}{% if sender.kvk %} | KvK {{ sender.kvk }}{% endif %}
+
+---
+
+Je krijgt deze mail eenmalig omdat {{ lead.name }} als bedrijf openbaar
+vindbaar is. Liever geen mail meer van mij? Antwoord met "nee" en ik
+verwijder je meteen uit mijn lijst.

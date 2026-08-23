@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+out/
+data/*.db
+data/*.db-journal
+suppression.txt
+config/campaign.yaml

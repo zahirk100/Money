@@ -1,0 +1,23 @@
+SUBJECT: {{ subject }}
+---
+Beste {{ salutation }},
+
+Kort geleden stuurde ik een voorbeeldpagina voor {{ lead.name }}:
+
+{{ demo_url }}
+
+Hij staat er nog. Als het nu niet uitkomt, laat het gerust weten - dan
+stop ik ermee en heb je er verder geen omkijken naar.
+
+Is er wel interesse, dan bel ik je liever vijf minuten dan dat ik nog
+een mail stuur. Op welk nummer kan ik je bereiken?
+
+Met vriendelijke groet,
+{{ sender.sender_name }}
+{{ sender.company_name }}
+{% if sender.phone %}{{ sender.phone }} | {% endif %}{{ sender.sender_email }}
+{{ sender.company_address }}{% if sender.kvk %} | KvK {{ sender.kvk }}{% endif %}
+
+---
+
+Liever geen mail meer? Antwoord met "nee" en ik verwijder je uit mijn lijst.

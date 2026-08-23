@@ -1,0 +1,30 @@
+# Belllijst {{ today }} - {{ area }}
+
+{{ leads|length }} bedrijven, gesorteerd op hoeveel er te winnen valt.
+Bellen mag zakelijk: het bel-me-niet-register geldt alleen voor consumenten.
+Beste tijden voor MKB: dinsdag t/m donderdag, 09:30-11:30 of 14:00-16:00.
+
+**Opening die werkt:** "Goedemorgen, u spreekt met {{ sender.sender_name }} van
+{{ sender.company_name }}. Ik bel omdat ik zag dat {{ '{bedrijf}' }} online
+{{ '{probleem}' }} - ik heb daar alvast een voorbeeldpagina voor gemaakt. Heeft u
+twee minuten?"
+
+---
+{% for lead in leads %}
+## {{ loop.index }}. {{ lead.name }} - score {{ lead.score }} ({{ lead.segment }})
+
+- **Bellen:** {{ lead.phone or 'geen nummer bekend' }}
+- **Branche:** {{ lead.niche }}
+- **Adres:** {{ lead.address or '-' }}{{ ', ' + lead.city if lead.city else '' }}
+- **Website:** {{ lead.website or 'geen' }}
+- **Demo:** {{ lead.demo_url or 'nog niet gegenereerd' }}
+
+**Zeg dit:**
+{% for pitch in lead.pitches %}
+> {{ pitch[0]|upper }}{{ pitch[1:] }}
+{% endfor %}
+
+**Notities:** ______________________________________________
+
+---
+{% endfor %}

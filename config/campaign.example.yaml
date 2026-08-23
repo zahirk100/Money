@@ -1,0 +1,70 @@
+# Campagne-instellingen voor de lead-machine.
+# Kopieer naar config/campaign.yaml en pas aan.
+
+region:
+  # Naam zoals die in OpenStreetMap staat. Voor NL gemeenten is admin_level 8,
+  # voor een wijk/buurt 10. Check via https://nominatim.openstreetmap.org
+  area: "Zwolle"
+  admin_level: 8
+
+# Elke niche is een groep OSM-tags. Kies branches waar een website direct
+# omzet oplevert (mensen zoeken erop) en waar de eigenaar zelf geen tijd heeft.
+niches:
+  - name: kapper
+    label: kapsalon
+    filters: ["shop=hairdresser"]
+  - name: schoonheidssalon
+    label: schoonheidssalon
+    filters: ["shop=beauty", "shop=massage"]
+  - name: aannemer
+    label: aannemersbedrijf
+    filters: ["craft=builder", "office=construction_company", "craft=carpenter"]
+  - name: installateur
+    label: installatiebedrijf
+    filters: ["craft=plumber", "craft=electrician", "craft=hvac"]
+  - name: garage
+    label: autobedrijf
+    filters: ["shop=car_repair"]
+  - name: hovenier
+    label: hoveniersbedrijf
+    filters: ["craft=gardener", "shop=garden_centre"]
+  - name: restaurant
+    label: restaurant
+    filters: ["amenity=restaurant", "amenity=cafe"]
+
+audit:
+  timeout_seconds: 12
+  # Seconden tussen twee requests naar dezelfde host. Wees netjes.
+  delay_seconds: 1.5
+  respect_robots: true
+  user_agent: "LeadMachine/1.0 (+https://jouwbedrijf.nl/bot; hallo@jouwbedrijf.nl)"
+
+scoring:
+  # Vanaf welke score een lead in welk bakje valt.
+  hot_threshold: 50
+  warm_threshold: 30
+
+outreach:
+  # Verplichte afzendergegevens. Zonder dit versturen we niets:
+  # onder de EU-regels moet elke commerciele mail herleidbaar zijn.
+  sender_name: "Jouw Naam"
+  sender_email: "hallo@jouwbedrijf.nl"
+  company_name: "Jouw Bedrijf"
+  company_address: "Straatnaam 1, 8011 AA Zwolle"
+  kvk: "12345678"
+  phone: "06 12345678"
+  reply_to: "hallo@jouwbedrijf.nl"
+
+  # Harde limieten. Meer dan dit per dag is geen outreach maar spam,
+  # en het verbrandt je domeinreputatie binnen een week.
+  daily_limit: 25
+  seconds_between_sends: 45
+  # Niet dezelfde onderneming binnen zoveel dagen opnieuw mailen.
+  cooldown_days: 90
+  suppression_file: "suppression.txt"
+
+offer:
+  # Wat je verkoopt. Komt terug in de mail en op de demo-pagina.
+  product: "een complete website inclusief teksten, foto's en Google-vindbaarheid"
+  price_from: 750
+  turnaround_days: 7
