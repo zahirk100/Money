@@ -27,22 +27,22 @@ TEMPLATE_DIR = REPO_ROOT / "templates"
 # 4,5:1 op wit, zodat ze ook als tekst leesbaar zijn.
 THEMAS: dict[str, dict[str, str]] = {
     "kapper": {"accent": "#b45309", "accent_donker": "#f59e0b", "tint": "#fef6ec",
-               "sfeer": "Vakmanschap en rust"},
+               "sfeer": "Vakmanschap en rust", "motief": "schaar"},
     "schoonheidssalon": {"accent": "#be185d", "accent_donker": "#f472b6", "tint": "#fdf2f7",
-                         "sfeer": "Verzorging met aandacht"},
+                         "sfeer": "Verzorging met aandacht", "motief": "bloem"},
     "aannemer": {"accent": "#c2410c", "accent_donker": "#fb923c", "tint": "#fff5ed",
-                 "sfeer": "Afspraak is afspraak"},
+                 "sfeer": "Afspraak is afspraak", "motief": "hamer"},
     "installateur": {"accent": "#0369a1", "accent_donker": "#38bdf8", "tint": "#eff8ff",
-                     "sfeer": "Snel ter plaatse"},
+                     "sfeer": "Snel ter plaatse", "motief": "druppel"},
     "garage": {"accent": "#b91c1c", "accent_donker": "#f87171", "tint": "#fef4f4",
-               "sfeer": "Eerlijk advies"},
+               "sfeer": "Eerlijk advies", "motief": "wiel"},
     "hovenier": {"accent": "#15803d", "accent_donker": "#4ade80", "tint": "#f1fdf4",
-                 "sfeer": "Groen dat blijft staan"},
+                 "sfeer": "Groen dat blijft staan", "motief": "blad"},
     "restaurant": {"accent": "#9a3412", "accent_donker": "#fb923c", "tint": "#fff6ee",
-                   "sfeer": "Lekker eten, zonder gedoe"},
+                   "sfeer": "Lekker eten, zonder gedoe", "motief": "bord"},
 }
 STANDAARD_THEMA = {"accent": "#1d4ed8", "accent_donker": "#60a5fa", "tint": "#eef4ff",
-                   "sfeer": "Gewoon goed geregeld"}
+                   "sfeer": "Gewoon goed geregeld", "motief": "vink"}
 
 # Iconen als pad in een 24x24 vak. Zelf getekend, dus geen extern bestand nodig
 # en de pagina blijft in een keer laden.
@@ -166,7 +166,7 @@ def slugify(value: str) -> str:
 # Verandert het ontwerp, dan hoort dit nummer op te lopen. De cyclus bouwt
 # demo's met een ouder nummer opnieuw, zodat een verbetering ook terechtkomt
 # bij bedrijven waarvoor al eerder een pagina is gemaakt.
-DEMO_VERSIE = "3"
+DEMO_VERSIE = "4"
 
 
 def kaart_embed(lat: float | None, lon: float | None) -> str | None:

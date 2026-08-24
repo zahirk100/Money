@@ -12,7 +12,7 @@ from dataclasses import dataclass
 
 import requests
 
-DEFAULT_UA = "LeadMachine/1.0 (+https://example.com/bot)"
+DEFAULT_UA = "Mozilla/5.0 (compatible; LeadMachine/1.0; +https://example.com/bot)"
 
 
 @dataclass
@@ -48,8 +48,13 @@ class PoliteClient:
         self._session.headers.update(
             {
                 "User-Agent": user_agent,
-                "Accept": "text/html,application/xhtml+xml",
-                "Accept-Language": "nl,en;q=0.8",
+                # Zonder deze kopregels weigeren sommige servers of firewalls
+                # het verzoek, en dan lijkt een werkende site onbereikbaar.
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "nl-NL,nl;q=0.9,en;q=0.8",
+                "Accept-Encoding": "gzip, deflate",
+                "Connection": "close",
+                "Upgrade-Insecure-Requests": "1",
             }
         )
 
@@ -82,7 +87,20 @@ class PoliteClient:
         parser = self._robots[root]
         return True if parser is None else parser.can_fetch(self.user_agent, url)
 
-    def get(self, url: str) -> Fetched:
+    def get(self, url: str, pogingen: int = 2) -> Fetched:
+        """Haalt een pagina op. Een verbindingsfout mag niet meteen leiden tot
+        het oordeel 'de site doet het niet': een tweede poging vangt de meeste
+        hikjes van onderweg op."""
+        laatste: Fetched | None = None
+        for poging in range(max(1, pogingen)):
+            if poging:
+                time.sleep(1.5)
+            laatste = self._probeer(url)
+            if laatste.ok or laatste.blocked_by_robots or laatste.status_code is not None:
+                return laatste   # een antwoord, ook een foutcode, is een antwoord
+        return laatste  # type: ignore[return-value]
+
+    def _probeer(self, url: str) -> Fetched:
         if not urllib.parse.urlsplit(url).scheme:
             url = "https://" + url
         parts = urllib.parse.urlsplit(url)

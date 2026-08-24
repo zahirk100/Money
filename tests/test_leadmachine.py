@@ -85,6 +85,43 @@ class TestAudit(unittest.TestCase):
         result = audit_lead({"name": "X", "website": "http://x.example.com"}, offline=True)
         self.assertIn("geen_https", [f["code"] for f in result["findings"]])
 
+    def test_a_failed_connection_is_never_a_claim(self):
+        """Onze server kon er niet bij is iets anders dan: de site doet het
+        niet. Het eerste mag nooit als bewering naar een ondernemer, want het
+        is vaak gewoon onwaar."""
+        from leadmachine.http import Fetched
+
+        class NepClient:
+            def __init__(self, uitkomst):
+                self.uitkomst = uitkomst
+
+            def get(self, url, pogingen=2):
+                return self.uitkomst
+
+        geen_antwoord = Fetched(False, "https://x.nl", "https://x.nl", None, "", 900, 0,
+                                error="ConnectionError")
+        resultaat = audit_lead({"name": "Beautylogy", "website": "https://x.nl"},
+                               client=NepClient(geen_antwoord))
+        self.assertEqual(resultaat["score"], 0, "onzekerheid levert geen punten op")
+        bevinding = resultaat["findings"][0]
+        self.assertEqual(bevinding["code"], "niet_kunnen_controleren")
+        for woord in ("niet te openen", "haken direct af", "foutmelding"):
+            self.assertNotIn(woord, bevinding["pitch"])
+
+    def test_an_error_page_is_a_claim_we_can_make(self):
+        """Antwoordt de server met een foutcode, dan ziet een bezoeker
+        hetzelfde. Dat mag je wel zeggen."""
+        from leadmachine.http import Fetched
+
+        class NepClient:
+            def get(self, url, pogingen=2):
+                return Fetched(False, "https://x.nl", "https://x.nl", 503, "", 300, 0)
+
+        resultaat = audit_lead({"name": "X", "website": "https://x.nl"}, client=NepClient())
+        self.assertGreater(resultaat["score"], 30)
+        self.assertEqual(resultaat["findings"][0]["code"], "site_geeft_fout")
+        self.assertIn("503", resultaat["findings"][0]["pitch"])
+
     def test_score_is_capped(self):
         findings = [{"code": "a", "weight": 80, "pitch": ""}, {"code": "b", "weight": 80, "pitch": ""}]
         from leadmachine.audit import _total

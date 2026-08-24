@@ -101,11 +101,24 @@ def audit_lead(
         return result
 
     if not fetched.ok:
-        findings.append(_finding(
-            "site_onbereikbaar", 45,
-            "de website die online staat is op dit moment niet te openen; "
-            "bezoekers die erop klikken, haken direct af.",
-            detail=f"fout bij het ophalen: {fetched.error or fetched.status_code}"))
+        if fetched.status_code:
+            # De server heeft geantwoord, met een foutmelding. Dat is hard te
+            # maken: wie de link opent krijgt hetzelfde te zien.
+            findings.append(_finding(
+                "site_geeft_fout", 42,
+                f"wie de website opent krijgt een foutmelding ({fetched.status_code}) "
+                "in plaats van de pagina.",
+                detail=f"HTTP-status {fetched.status_code} op {fetched.final_url}"))
+        else:
+            # Geen antwoord. Dat kan van alles zijn: een hapering onderweg, een
+            # firewall die servers weert, een trage verbinding. Wij weten alleen
+            # dat WIJ er niet bij konden - niet dat de site stuk is. Daar mag
+            # dus geen bewering over naar de ondernemer, en geen punten voor.
+            findings.append(_finding(
+                "niet_kunnen_controleren", 0,
+                "we konden de website niet controleren vanaf onze server; "
+                "dit zegt niets over de site zelf.",
+                detail=f"geen antwoord: {fetched.error}. Handmatig nakijken voordat je contact opneemt."))
         result["findings"] = findings
         result["score"] = _total(findings)
         return result

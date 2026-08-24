@@ -80,6 +80,14 @@
     background-size:22px 22px;color:var(--lijn);
     -webkit-mask-image:linear-gradient(180deg,#000,transparent 65%);
             mask-image:linear-gradient(180deg,#000,transparent 65%)}
+  /* Een groot motief van de branche achter de kop: geeft de pagina een gezicht
+     zonder dat we een foto hebben. Bewust ver naar achteren, zodat het de
+     tekst nooit in de weg zit. */
+  .motief{position:absolute;right:-16%;top:-6%;width:min(74vw,560px);height:auto;z-index:-1;
+          color:var(--accent);opacity:.075;pointer-events:none}
+  @media (prefers-color-scheme: dark){ .motief{opacity:.11} }
+  @media(min-width:980px){ .motief{right:-4%;top:-12%;width:min(46vw,620px)} }
+
   .hero-grid{display:grid;gap:38px;align-items:start}
   .label{display:inline-flex;align-items:center;gap:8px;background:var(--vlak);border:1px solid var(--lijn);
          color:var(--ink-2);padding:6px 14px;border-radius:999px;font-size:.8rem;font-weight:560;
@@ -197,6 +205,9 @@
   .kaart-kaartje .t{font-size:.76rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;
                     font-weight:640;margin-bottom:5px}
   .kaart-leeg{height:300px;display:grid;place-items:center;color:var(--accent)}
+  /* Zonder deze regel wint display:grid van het hidden-attribuut en blijft de
+     plaatsvervanger over de kaart heen staan. */
+  .kaart-leeg[hidden]{display:none}
   .kaart-leeg svg{width:46px;height:46px}
 
   /* Afsluitende oproep */
@@ -277,6 +288,18 @@
 
 <div class="hero">
   <span class="vlek a"></span><span class="vlek b"></span><span class="vlek c"></span>
+  <svg class="motief" viewBox="0 0 400 400" aria-hidden="true" focusable="false">
+    <circle cx="200" cy="200" r="168" fill="none" stroke="currentColor" stroke-width="1.2" opacity=".5"/>
+    <circle cx="200" cy="200" r="126" fill="none" stroke="currentColor" stroke-width="1.2" opacity=".35"/>
+    <path d="M200 24a176 176 0 0 1 176 176" fill="none" stroke="currentColor" stroke-width="7"
+          stroke-linecap="round" opacity=".5"/>
+    <g transform="translate(200 200) scale(6.6) translate(-12 -12)">
+      <path d="{{ iconen.get(thema.motief, iconen.vink) }}" fill="none" stroke="currentColor"
+            stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+    <circle cx="336" cy="112" r="5" fill="currentColor" opacity=".55"/>
+    <circle cx="72" cy="292" r="3.5" fill="currentColor" opacity=".45"/>
+  </svg>
   <div class="wrap hero-grid">
     <div>
       <span class="label">{% if lead.stad %}<b>{{ lead.stad }}</b> &middot; {% endif %}{{ niche_label }}</span>
@@ -433,7 +456,8 @@
       <iframe id="kaart" src="{{ kaart_url }}" loading="lazy" referrerpolicy="no-referrer"
               title="Kaart met de locatie van {{ lead.naam }}"></iframe>
       {% endif %}
-      <div class="kaart-leeg"{% if kaart_url %} id="kaart-terugval" hidden{% endif %}>
+      <div class="kaart-leeg"{% if kaart_url %} id="kaart-terugval" hidden{% endif %}
+           {% if kaart_url %}style="position:absolute;inset:0"{% endif %}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"
              stroke-linecap="round" stroke-linejoin="round"><path d="{{ iconen.pin }}"/></svg>
       </div>
@@ -576,15 +600,34 @@
 
   // Blokkeert een netwerk of browser de kaart, dan hoort daar iets te staan
   // in plaats van een leeg vlak.
+  // Blokkeert een netwerk of browser de kaart, dan hoort daar iets te staan
+  // in plaats van een leeg vlak. Let op: een iframe meldt ook "geladen" als het
+  // laden juist mislukte, dus daar valt niet op te bouwen. Een eigen verzoek
+  // naar dezelfde bron zegt het wel: mislukt dat, dan is de kaart onbereikbaar.
   function bewaakKaart(){
     const kaart = document.getElementById('kaart');
     const terugval = document.getElementById('kaart-terugval');
     if (!kaart || !terugval) return;
-    let geladen = false;
-    kaart.addEventListener('load', () => { geladen = true; });
-    kaart.addEventListener('error', toon);
-    setTimeout(() => { if (!geladen) toon(); }, 6000);
-    function toon(){ kaart.remove(); terugval.hidden = false; }
+
+    function controleer(){
+      if (!window.fetch){ return; }
+      fetch(kaart.src, {mode: 'no-cors'})
+        .then(() => { terugval.hidden = true; })
+        .catch(() => { terugval.hidden = false; });
+    }
+
+    // Pas kijken als de kaart in beeld komt: hij laadt zelf ook pas dan.
+    if ('IntersectionObserver' in window){
+      const kijker = new IntersectionObserver((rijen) => {
+        if (rijen.some(rij => rij.isIntersecting)){
+          kijker.disconnect();
+          controleer();
+        }
+      }, {rootMargin: '400px'});
+      kijker.observe(kaart);
+    } else {
+      controleer();
+    }
   }
 
   const kop = document.getElementById('kop');

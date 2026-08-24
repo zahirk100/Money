@@ -155,6 +155,22 @@ def leads_without_audit(store: Store, limit: int | None = None) -> list[dict[str
     return store.execute(sql)
 
 
+def leads_needing_recheck(store: Store, uren: int = 24, limit: int = 50) -> list[dict[str, Any]]:
+    """Bedrijven waarvan we de website niet konden bereiken.
+
+    Dat oordeel zegt niets over die site; het kan een hapering zijn geweest.
+    Zulke leads blijven anders voor altijd op nul staan, dus proberen we het
+    later opnieuw.
+    """
+    grens = stamp(now() - timedelta(hours=uren))
+    return store.execute(
+        "SELECT l.* FROM leads l JOIN audits a ON a.lead_id = l.id "
+        "WHERE a.findings LIKE ? AND a.checked_at < ? "
+        f"ORDER BY a.checked_at LIMIT {int(limit)}",
+        ("%niet_kunnen_controleren%", grens),
+    )
+
+
 def ranked_leads(
     store: Store,
     limit: int | None = None,

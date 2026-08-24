@@ -340,6 +340,10 @@ def run_cycle(
 
         # 2. Websites beoordelen, zolang er tijd is.
         todo = database.leads_without_audit(store, settings["audits_per_run"])
+        # Wat we eerder niet konden bereiken, verdient een tweede kans.
+        ruimte = settings["audits_per_run"] - len(todo)
+        if ruimte > 0:
+            todo += database.leads_needing_recheck(store, limit=ruimte)
         if todo:
             report(f"{len(todo)} websites te beoordelen...")
             counters["audited"] = _audit_step(campaign, store, todo, budget, report, offline)
