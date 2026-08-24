@@ -651,6 +651,18 @@ class TestToegang(unittest.TestCase):
             self.assertEqual(json.loads(database.get_meta(store, "discover_pending")), [])
             store.close()
 
+    def test_branches_are_audited_in_turn(self):
+        """Anders staat de lijst vol met de branche die toevallig als eerste
+        werd opgehaald, en zie je de rest pas dagen later."""
+        from leadmachine.pipeline import _om_en_om
+
+        leads = ([{"niche": "kapper", "id": i} for i in range(4)]
+                 + [{"niche": "garage", "id": i} for i in range(2)])
+        volgorde = [lead["niche"] for lead in _om_en_om(leads)]
+        self.assertEqual(volgorde[:4], ["kapper", "garage", "kapper", "garage"])
+        self.assertEqual(len(volgorde), len(leads), "er mag niets wegvallen")
+        self.assertEqual(_om_en_om([]), [])
+
     def test_an_overpass_outage_does_not_kill_the_cycle(self):
         """Beoordelen en demo's bouwen hebben niets met Overpass te maken; die
         horen door te gaan als het ophalen stukloopt."""

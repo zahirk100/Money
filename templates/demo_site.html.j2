@@ -497,13 +497,20 @@
 <script>
 (() => {
   const week = {{ week|tojson }};
+  const heeftTijdenSectie = {{ 'true' if (week or openingstijden_tekst) else 'false' }};
 
   // Nu open of niet: dat is het eerste wat iemand wil weten.
   function toonStatus(){
     const stip = document.getElementById('stip');
     const tekst = document.getElementById('status-tekst');
     const onder = document.getElementById('status-onder');
-    if (!week.length){ tekst.textContent = 'Openingstijden'; onder.textContent = 'Zie hieronder'; return; }
+    if (!week.length){
+      // Staat er geen openingstijdensectie op de pagina, dan is verwijzen naar
+      // "hieronder" onzin: dan is bellen het antwoord.
+      tekst.textContent = heeftTijdenSectie ? 'Openingstijden' : 'Bel voor onze openingstijden';
+      onder.textContent = heeftTijdenSectie ? 'Zie hieronder' : 'We staan u graag te woord';
+      return;
+    }
 
     const nu = new Date();
     const vandaag = (nu.getDay() + 6) % 7;          // maandag = 0

@@ -245,6 +245,26 @@ def _client_van_deze_draad(campaign: Campaign) -> PoliteClient:
     return _draad_eigen.client
 
 
+def _om_en_om(leads: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Branches om en om, in plaats van eerst alle kappers.
+
+    Beoordelen gebeurt op volgorde van binnenkomst, en het ophalen gaat branche
+    voor branche. Zonder deze verdeling staat je hele lijst vol met de branche
+    die toevallig als eerste aan de beurt was.
+    """
+    per_branche: dict[str, list[dict[str, Any]]] = {}
+    for lead in leads:
+        per_branche.setdefault(lead.get("niche") or "", []).append(lead)
+
+    verdeeld: list[dict[str, Any]] = []
+    rijen = list(per_branche.values())
+    for stand in range(max((len(rij) for rij in rijen), default=0)):
+        for rij in rijen:
+            if stand < len(rij):
+                verdeeld.append(rij[stand])
+    return verdeeld
+
+
 def _audit_step(
     campaign: Campaign,
     store: Store,
@@ -260,6 +280,7 @@ def _audit_step(
         client = None if offline else _client_van_deze_draad(campaign)
         return lead, audit_lead(lead, client=client, offline=offline)
 
+    todo = _om_en_om(todo)
     groep = 1 if offline else AUDIT_WORKERS
     with ThreadPoolExecutor(max_workers=groep) as pool:
         for start in range(0, len(todo), groep):

@@ -180,6 +180,23 @@ class TestDemo(unittest.TestCase):
         self.assertIn('<span class="blok">09:00-13:00</span>', html)
         self.assertIn('<span class="scheiding">', html)
 
+    def test_no_pointer_to_a_section_that_is_not_there(self):
+        """Zonder openingstijden stond er 'Zie hieronder' terwijl er niets
+        onder stond."""
+        _, zonder = build_demo(
+            {"name": "Hair by Christine", "niche": "kapper", "osm_id": "9", "raw": {}}, campaign()
+        )
+        self.assertIn("heeftTijdenSectie = false", zonder)
+        self.assertNotIn('id="tijden"', zonder)
+
+        _, met = build_demo(
+            {"name": "Hair by Christine", "niche": "kapper", "osm_id": "9", "raw": {},
+             "opening_hours": "Mo-Fr 09:00-17:00"},
+            campaign(),
+        )
+        self.assertIn("heeftTijdenSectie = true", met)
+        self.assertIn('id="tijden"', met)
+
     def test_page_shows_the_business_own_street(self):
         """De kaartuitsnede is het detail waarop iemand zijn eigen zaak
         herkent; zonder coordinaten mag er geen kapotte kaart staan."""
