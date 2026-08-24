@@ -226,6 +226,21 @@ class TestVerbindingsinstelling(unittest.TestCase):
         )
         self.assertIn("YOUR-PASSWORD", melding)
 
+    def test_brackets_left_around_the_password(self):
+        melding = self._fout(
+            "postgresql://postgres.abc:[Geheim123]@aws-1-eu-central-1.pooler.supabase.com:5432/postgres",
+            hosted=False,
+        )
+        self.assertIn("blokhaken", melding)
+
+    def test_ipv6_host_keeps_its_brackets(self):
+        """Een IPv6-adres hoort tussen haakjes; dat mag geen fout opleveren."""
+        from leadmachine.store import resolve_target
+
+        os.environ["DATABASE_URL"] = "postgresql://postgres:Geheim@[2001:db8::1]:5432/postgres"
+        os.environ.pop("LM_HOSTED", None)
+        self.assertIn("2001:db8::1", resolve_target())
+
     def test_direct_connection_is_recognised(self):
         melding = self._fout(
             "postgresql://postgres:geheim@db.abcdef.supabase.co:5432/postgres", hosted=False

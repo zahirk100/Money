@@ -269,6 +269,16 @@ def resolve_target(explicit: str | Path | None = None) -> str:
                     "door het databasewachtwoord dat je bij het aanmaken van het project koos "
                     "(kwijt? Project Settings > Database > Reset database password)."
                 )
+            # Haakjes om het wachtwoord blijven makkelijk staan bij het
+            # vervangen van de plaatshouder, en dan weigert de database hem.
+            # Alleen het deel voor de apenstaart bekijken: een IPv6-host staat
+            # zelf tussen haakjes.
+            inloggegevens = value.rsplit("@", 1)[0] if "@" in value else ""
+            if "[" in inloggegevens or "]" in inloggegevens:
+                raise OpslagOntbreekt(
+                    "In DATABASE_URL staan nog blokhaken om het wachtwoord. Haal die weg: "
+                    "alleen het wachtwoord zelf hoort er te staan, zonder [ en ]."
+                )
             if value.startswith(("http://", "https://")):
                 # Supabase toont bovenaan het project een adres dat op https
                 # begint. Dat is de API, niet de database.
