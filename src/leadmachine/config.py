@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import random
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -60,8 +61,17 @@ class Campaign:
 
     @property
     def area(self) -> str:
-        """De eerste gemeente. Handig voor teksten die er een noemen."""
+        """Alleen om te tonen. Niet in een zoekopdracht gebruiken: in de
+        automatische stand is dit geen bestaande gemeente."""
         return self.areas[0] if self.areas and not self.automatisch else "heel Nederland"
+
+    def zoekgebied(self) -> str:
+        """Een gemeente waarin echt gezocht kan worden."""
+        if self.automatisch:
+            from .gemeenten import alle_gemeenten
+
+            return random.choice(alle_gemeenten())
+        return self.areas[0]
 
     def niche(self, name: str) -> Niche | None:
         return next((n for n in self.niches if n.name == name), None)

@@ -31,9 +31,23 @@ def campaign():
 
 class TestDiscover(unittest.TestCase):
     def test_query_contains_area_and_filters(self):
-        query = build_query(campaign(), campaign().niches[0])
+        query = build_query(campaign(), campaign().niches[0], area="Zwolle")
         self.assertIn('area["name"="Zwolle"]', query)
         self.assertIn('nwr["shop"="hairdresser"]', query)
+
+    def test_a_query_never_holds_the_display_label(self):
+        """In de automatische stand is er geen vaste gemeente. De naam die we
+        tonen is geen gemeente, en mag dus nooit in een zoekopdracht komen."""
+        from leadmachine.gemeenten import alle_gemeenten
+
+        camp = campaign()
+        camp.areas = ["auto"]
+        self.assertEqual(camp.area, "heel Nederland")
+
+        query = build_query(camp, camp.niches[0])
+        self.assertNotIn("heel Nederland", query)
+        gekozen = query.split('area["name"="')[1].split('"')[0]
+        self.assertIn(gekozen, alle_gemeenten())
 
     def test_element_without_name_is_skipped(self):
         self.assertIsNone(element_to_lead({"type": "node", "id": 1, "tags": {}}, "kapper", "test"))

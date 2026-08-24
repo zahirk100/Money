@@ -9,7 +9,6 @@ aanwezigheid doen, staan in OSM zonder website-tag. Dat is precies je doelgroep.
 from __future__ import annotations
 
 import json
-import random
 import time
 from pathlib import Path
 from typing import Any, Iterable
@@ -37,7 +36,7 @@ def build_query(campaign: Campaign, niche: Niche, timeout: int = 25, area: str |
         )
     return (
         f"[out:json][timeout:{timeout}];\n"
-        f'area["name"="{area or campaign.area}"]["boundary"="administrative"]'
+        f'area["name"="{area or campaign.zoekgebied()}"]["boundary"="administrative"]'
         f'["admin_level"="{campaign.admin_level}"]->.searchArea;\n'
         "(\n" + "\n".join(selectors) + "\n);\n"
         "out center tags;"
@@ -137,12 +136,7 @@ def discover(
                 yield lead
         return
 
-    gebied = area
-    if not gebied:
-        # In de automatische stand is er geen vast gebied; dan kiezen we er een.
-        from .gemeenten import alle_gemeenten
-
-        gebied = random.choice(alle_gemeenten()) if campaign.automatisch else campaign.area
+    gebied = area or campaign.zoekgebied()
 
     for index, niche in enumerate(niches):
         if index:
