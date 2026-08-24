@@ -172,8 +172,15 @@ class Store:
             import psycopg
             from psycopg.rows import dict_row
 
-            # Supabase geeft een pooler-URL; sslmode staat daar meestal al in.
-            self._conn = psycopg.connect(self.target, row_factory=dict_row, autocommit=False)
+            # Supabase zet een pooler voor de database. In transaction mode
+            # (poort 6543) overleeft een prepared statement de volgende query
+            # niet, want je krijgt dan telkens een andere sessie. psycopg gaat
+            # na een paar herhalingen vanzelf voorbereiden, en dat loopt daar
+            # stuk. Uitzetten kost hier vrijwel niets en maakt beide poorten
+            # bruikbaar.
+            self._conn = psycopg.connect(
+                self.target, row_factory=dict_row, autocommit=False, prepare_threshold=None
+            )
         else:
             path = Path(self.target)
             path.parent.mkdir(parents=True, exist_ok=True)

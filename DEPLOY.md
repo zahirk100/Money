@@ -19,9 +19,25 @@ Wat waar draait:
 
 1. Maak een project op [supabase.com](https://supabase.com). Kies een regio in
    Europa (Frankfurt), dat scheelt latency en houdt de gegevens in de EU.
-2. Ga naar **Project Settings > Database > Connection string** en kies
-   **Session pooler** (poort 5432). Kopieer die string; daarin staat je
-   wachtwoord.
+2. Klik bovenin op **Connect** (het stekkertje naast de projectnaam) en kies
+   onder *Connection string* de **Session pooler** (poort 5432). Hij ziet
+   eruit als:
+
+   ```
+   postgresql://postgres.abcdefghijkl:[YOUR-PASSWORD]@aws-1-eu-central-1.pooler.supabase.com:5432/postgres
+   ```
+
+   Vervang `[YOUR-PASSWORD]` door het databasewachtwoord dat je bij het
+   aanmaken hebt gekozen. Kwijt? **Project Settings > Database > Reset
+   database password**.
+
+   Niet de *Direct connection* nemen: die is alleen over IPv6 bereikbaar en
+   daar kan Vercel niet bij. De *Transaction pooler* (6543) werkt ook - de
+   code zet prepared statements uit, juist daarvoor - maar session pooling is
+   voor dit werk de rustigste keuze.
+
+   > Deze string bevat je databasewachtwoord. Plak hem alleen in Vercel, niet
+   > in een chat, een issue of een commit.
 3. Optioneel: open de **SQL Editor** en draai `supabase/schema.sql`. Hoeft niet
    - de applicatie maakt de tabellen zelf aan bij de eerste start - maar zo zie
    je precies wat er staat.
