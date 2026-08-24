@@ -1,5 +1,23 @@
-# Alleen hier zodat Vercel weet welk entrypoint het moet gebruiken.
-# De dependencies staan in requirements.txt.
+# Vercel gebruikt uv zodra dit bestand bestaat, en uv wil een project-tabel.
+# Zonder build-system behandelt uv dit als een virtueel project: alleen de
+# dependencies worden geinstalleerd, de code zelf wordt niet gebouwd.
 
+[project]
+name = "leadmachine"
+version = "1.0.0"
+description = "Vindt lokale bedrijven met een zwakke online aanwezigheid en zet de outreach klaar."
+requires-python = ">=3.11"
+dependencies = [
+    "requests>=2.31",
+    "beautifulsoup4>=4.12",
+    "Jinja2>=3.1",
+    "PyYAML>=6.0",
+    "psycopg[binary]>=3.1",
+]
+
+[tool.uv]
+package = false
+
+# Waar Vercel de ingang van de applicatie vindt.
 [tool.vercel]
 entrypoint = "api.index:handler"
