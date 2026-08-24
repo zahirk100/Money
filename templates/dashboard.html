@@ -125,7 +125,8 @@
   <section id="view-overzicht">
     <h1>Overzicht</h1>
     <p class="sub" id="ap-line">&nbsp;</p>
-    <div class="tiles" id="tiles"></div>
+    <div class="tiles" id="tiles"><div class="tile"><p class="label">Laden...</p>
+      <div class="value">&middot;&middot;&middot;</div><div class="foot">gegevens ophalen</div></div></div>
 
     <div class="row two">
       <div class="card">
@@ -289,7 +290,19 @@ function funnelChart(el, data){
 let overzichtData = null;
 
 async function laadOverzicht(){
-  const d = await get('/api/overview');
+  let d;
+  try {
+    d = await get('/api/overview');
+    if (d.fout) throw new Error(d.fout);
+  } catch (err) {
+    document.getElementById('tiles').innerHTML =
+      `<div class="tile" style="grid-column:1/-1">
+         <p class="label">Overzicht kon niet worden geladen</p>
+         <div class="foot">${esc(err.message || err)} &mdash; draait er een cyclus, wacht dan even.
+         Blijft dit staan, kijk dan in de logs van je hosting.</div>
+       </div>`;
+    return;
+  }
   overzichtData = d;
   const s = d.stats, ap = d.autopilot;
 
