@@ -582,6 +582,9 @@ class TestToegang(unittest.TestCase):
             store.execute("DELETE FROM leads")
             store.commit()
             camp = campaign()
+            # Meer dan een gemeente, anders is er na de eerste opdracht niets
+            # meer om te onthouden.
+            camp.areas = ["Zwolle", "Kampen", "Deventer"]
             instellingen = {"discover_every_days": 7, "source": "fixture", "backlog_grens": 40}
 
             eerste = _discover_step(camp, store, instellingen, Budget(0.001), lambda _: None, False)
@@ -597,7 +600,8 @@ class TestToegang(unittest.TestCase):
 
     def test_search_covers_every_area_and_branch(self):
         """De machine hoort niet aan een stad vast te zitten: elke gemeente uit
-        de config komt in de wachtrij, met alle branches erbij."""
+        de config komt in de wachtrij. De branches zitten in een opdracht, dus
+        er hoort er precies een per gemeente te zijn."""
         from leadmachine import pipeline
 
         gezien = []
@@ -630,7 +634,9 @@ class TestToegang(unittest.TestCase):
 
         gebieden = {gebied for gebied, _ in gezien}
         self.assertEqual(gebieden, {"Zwolle", "Kampen"})
-        self.assertEqual(len(gezien), len(camp.areas) * len(camp.niches))
+        self.assertEqual(len(gezien), len(camp.areas), "een opdracht per gemeente")
+        self.assertTrue(all(niche is None for _, niche in gezien),
+                        "alle branches horen in dezelfde opdracht te zitten")
 
     def test_automatic_mode_picks_towns_itself(self):
         """Zonder opgegeven gemeenten hoort de machine zelf combinaties te
@@ -844,7 +850,9 @@ class TestToegang(unittest.TestCase):
             store.close()
 
     def test_a_big_backlog_pauses_the_search(self):
-        """Honderd bedrijven zonder oordeel zijn meer waard dan honderd nieuwe."""
+        """Honderd te controleren websites zijn meer waard dan honderd nieuwe
+        bedrijven. Bedrijven zonder website tellen hier niet mee: die zijn
+        meteen beoordeeld en kosten dus geen tijd."""
         from leadmachine import pipeline
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -852,6 +860,7 @@ class TestToegang(unittest.TestCase):
             for i in range(45):
                 database.upsert_lead(store, {
                     "osm_type": "node", "osm_id": f"b{i}", "name": f"Bedrijf {i}", "niche": "kapper",
+                    "website": f"https://bedrijf{i}.example.com",
                 })
             store.commit()
             gevonden = pipeline._discover_step(
@@ -859,6 +868,16 @@ class TestToegang(unittest.TestCase):
                 pipeline.Budget(None), lambda _: None, False,
             )
             self.assertEqual(gevonden, 0)
+
+            # Zonder website is het oordeel meteen klaar; zo'n stapel hoort het
+            # ophalen niet tegen te houden.
+            store.execute("UPDATE leads SET website = NULL")
+            store.commit()
+            gevonden = pipeline._discover_step(
+                campaign(), store, {"discover_every_days": 7, "source": "fixture", "backlog_grens": 40},
+                pipeline.Budget(None), lambda _: None, False,
+            )
+            self.assertGreater(gevonden, 0)
             store.close()
 
     def test_wrong_password_is_refused(self):

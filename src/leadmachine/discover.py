@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import random
+import re
 import time
 from pathlib import Path
 from typing import Any, Iterable
@@ -59,6 +60,68 @@ def build_query(
         "(\n" + "\n".join(selectors) + "\n);\n"
         "out center tags;"
     )
+
+
+def _per_sleutel(niches: Iterable[Niche]) -> dict[str, list[str]]:
+    """Alle gezochte tags gegroepeerd per sleutel: {"shop": ["bakery", ...]}."""
+    groepen: dict[str, list[str]] = {}
+    for niche in niches:
+        for raw in niche.filters:
+            key, _, value = raw.partition("=")
+            key, value = key.strip(), value.strip()
+            waarden = groepen.setdefault(key, [])
+            if value and value not in waarden:
+                waarden.append(value)
+    return groepen
+
+
+def build_query_gebied(
+    campaign: Campaign,
+    area: str,
+    timeout: int = 25,
+    alleen_zonder_website: bool = True,
+    niches: list[Niche] | None = None,
+) -> str:
+    """Een gemeente in een keer, in plaats van een opdracht per branche.
+
+    Dit is het verschil tussen veertig zoekopdrachten per gemeente en een. Een
+    losse opdracht als "hovenier in Dongen" komt vaak met nul terug - niet omdat
+    er geen hoveniers zijn, maar omdat er in OpenStreetMap maar een paar honderd
+    van dat soort bedrijven in heel Nederland staan. Zo'n opdracht kost dan wel
+    de tijd van een hele beurt. Vragen we alle branches tegelijk, dan levert
+    dezelfde seconde alles op wat er in die gemeente te halen valt, en zoeken we
+    achteraf zelf uit bij welke branche elk bedrijf hoort.
+    """
+    lijst = list(niches if niches is not None else campaign.niches)
+    zonder = "".join(f'[!"{tag}"]' for tag in WEBSITE_TAGS) if alleen_zonder_website else ""
+    selectors = []
+    for key, waarden in _per_sleutel(lijst).items():
+        if waarden:
+            keuze = "|".join(sorted(set(waarden)))
+            selectors.append(f'  nwr["{key}"~"^({keuze})$"]{zonder}(area.searchArea);')
+        else:
+            selectors.append(f'  nwr["{key}"]{zonder}(area.searchArea);')
+    return (
+        f"[out:json][timeout:{timeout}];\n"
+        f'area["name"="{area}"]["boundary"="administrative"]'
+        f'["admin_level"="{campaign.admin_level}"]->.searchArea;\n'
+        "(\n" + "\n".join(selectors) + "\n);\n"
+        "out center tags;"
+    )
+
+
+def niche_van(tags: dict[str, Any], niches: Iterable[Niche]) -> str | None:
+    """Bij welke branche hoort dit bedrijf? De eerste die past wint, dus de
+    volgorde in de config bepaalt wie voorgaat bij een bedrijf dat op twee
+    lijstjes staat (een autobedrijf dat ook auto's verkoopt bijvoorbeeld)."""
+    for niche in niches:
+        for raw in niche.filters:
+            key, _, value = raw.partition("=")
+            key, value = key.strip(), value.strip()
+            aanwezig = str(tags.get(key, "")).strip()
+            if aanwezig and (aanwezig == value or not value):
+                return niche.name
+    return None
 
 
 def _first(tags: dict[str, str], *keys: str) -> str | None:
@@ -140,7 +203,14 @@ def fetch_overpass(query: str, timeout: float = 30.0) -> dict[str, Any]:
                 headers={"User-Agent": "LeadMachine/1.0 (OSM lead research)"},
             )
             if resp.status_code >= 400:
-                redenen.append(f"{naam}: {_reden(resp.status_code)}")
+                uitleg = _reden(resp.status_code)
+                if 400 <= resp.status_code < 500 and resp.status_code != 429:
+                    # Bij een afgekeurde opdracht staat in het antwoord waarom.
+                    # Dat is precies wat je wilt zien; "foutcode 400" niet.
+                    kern = " ".join(re.sub(r"<[^>]+>", " ", resp.text).split())[:200]
+                    if kern:
+                        uitleg += f' - "{kern}"'
+                redenen.append(f"{naam}: {uitleg}")
                 # Druk bij Overpass. Even wachten heeft alleen zin als daar tijd
                 # voor is; anders meteen de andere server proberen.
                 if resp.status_code == 429 and timeout > 20:
@@ -182,6 +252,27 @@ def discover(
         return
 
     gebied = area or campaign.zoekgebied()
+
+    if only_niche is None:
+        # Alle branches in een opdracht. Zie build_query_gebied waarom.
+        payload = fetch_overpass(
+            build_query_gebied(
+                campaign, gebied, timeout=max(10, int(timeout) - 5),
+                alleen_zonder_website=alleen_zonder_website, niches=niches,
+            ),
+            timeout=timeout,
+        )
+        for element in payload.get("elements", []):
+            naam = niche_van(element.get("tags") or {}, niches)
+            if not naam:
+                continue
+            lead = element_to_lead(element, naam, "overpass")
+            if not lead:
+                continue
+            if alleen_zonder_website and lead.get("website"):
+                continue
+            yield lead
+        return
 
     for index, niche in enumerate(niches):
         if index:

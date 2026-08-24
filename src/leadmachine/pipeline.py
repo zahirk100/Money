@@ -13,6 +13,7 @@ import json
 import os
 import threading
 import time
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 import traceback
 from datetime import datetime, timedelta
@@ -24,7 +25,7 @@ from .audit import audit_lead
 from .config import Campaign, load_dotenv
 from .demo import DEMO_VERSIE, build_demo
 from .discover import discover
-from .gemeenten import alle_gemeenten, zoekvolgorde
+from .gemeenten import zoekvolgorde
 from .http import PoliteClient
 from .outreach import Mailer, OutreachError, draft_email, eligible, load_suppression_file
 from .store import Store, klok, now, stamp
@@ -140,22 +141,23 @@ def _discover_step(
     report: Reporter,
     force: bool,
 ) -> int:
-    """Haalt bedrijven op, een branche per keer.
+    """Haalt bedrijven op, een gemeente per keer.
 
-    Een enkele Overpass-query duurt zomaar tien tot dertig seconden, en met een
-    handvol branches loopt dat ver over wat een serverless functie mag draaien.
-    Daarom wordt na elke branche opgeslagen wat er nog open staat: de volgende
+    Een enkele Overpass-query duurt zomaar tien tot dertig seconden, en een
+    handvol daarvan loopt ver over wat een serverless functie mag draaien.
+    Daarom wordt na elke gemeente opgeslagen wat er nog open staat: de volgende
     aanroep pakt de rest op in plaats van weer vooraan te beginnen.
     """
     # Ligt er nog een flinke stapel te beoordelen, dan is die stapel meer waard
-    # dan nog meer bedrijven erbij. Een Overpass-query eet bijna het hele
-    # tijdsbudget op, en een lead zonder oordeel levert niets op.
+    # dan nog meer bedrijven erbij. Maar alleen bedrijven met een website kosten
+    # tijd: daar moet een pagina voor opgehaald worden. Voor de rest is het
+    # oordeel meteen klaar, en die horen het ophalen dus niet tegen te houden.
     wachtend = int(store.scalar(
         "SELECT COUNT(*) AS n FROM leads l LEFT JOIN audits a ON a.lead_id = l.id "
-        "WHERE a.id IS NULL"
+        "WHERE a.id IS NULL AND l.website IS NOT NULL AND l.website <> ''"
     ) or 0)
     if not force and wachtend >= int(settings.get("backlog_grens", 40)):
-        report(f"Ophalen overgeslagen: eerst {wachtend} bedrijven beoordelen.")
+        report(f"Ophalen overgeslagen: eerst {wachtend} websites beoordelen.")
         return 0
 
     # Na een mislukte poging even niet opnieuw: Overpass is dan meestal druk,
@@ -173,21 +175,17 @@ def _discover_step(
         )
         return 0
 
-    # Waar we naar zoeken: elke gemeente maal elke branche.
+    # Waar we zoeken: per gemeente, alle branches in een opdracht. Zie
+    # build_query_gebied waarom dat niet per branche gaat.
     if campaign.automatisch:
-        # Zelf kiezen: alle gemeenten uit de lijst, in willekeurige volgorde.
-        # De volgorde ligt vast zodra hij is bepaald, zodat een volgende
-        # aanroep verdergaat in plaats van opnieuw te loten.
-        gemeenten = alle_gemeenten()
-        dekking = zoekvolgorde([niche.name for niche in campaign.niches])
-        vingerafdruk = f"auto:{len(gemeenten)}x{len(campaign.niches)}"
+        # Zelf kiezen: alle gemeenten uit de lijst, door elkaar. De volgorde
+        # ligt vast zodra hij is bepaald, zodat een volgende aanroep verdergaat
+        # in plaats van opnieuw te loten.
+        dekking = zoekvolgorde()
+        vingerafdruk = f"auto:{len(dekking)}gemeenten:{len(campaign.niches)}branches"
     else:
-        dekking = [
-            f"{gebied}::{niche.name}"
-            for gebied in campaign.areas
-            for niche in campaign.niches
-        ]
-        vingerafdruk = "|".join(sorted(dekking))
+        dekking = list(campaign.areas)
+        vingerafdruk = "|".join(sorted(dekking)) + f":{len(campaign.niches)}branches"
     gewijzigd = database.get_meta(store, "discover_dekking") != vingerafdruk
 
     openstaand = json.loads(database.get_meta(store, "discover_pending") or "[]")
@@ -195,65 +193,72 @@ def _discover_step(
         # Een gemeente of branche erbij (of eraf) betekent opnieuw langs alles.
         # Zonder deze controle zou hij pas over een week merken dat er iets is
         # veranderd, en tot die tijd dezelfde stad blijven doen.
-        nog_niet_gedaan = [combi for combi in dekking if combi not in set(openstaand)]
+        nog_niet_gedaan = [plek for plek in dekking if plek not in set(openstaand)]
         openstaand = openstaand + nog_niet_gedaan if openstaand else list(dekking)
-        # Alleen combinaties die we nu nog willen.
-        openstaand = [combi for combi in openstaand if combi in set(dekking)]
+        # Alleen gemeenten die we nu nog willen.
+        openstaand = [plek for plek in openstaand if plek in set(dekking)]
         database.set_meta(store, "discover_dekking", vingerafdruk)
         database.set_meta(store, "discover_pending", json.dumps(openstaand))
         store.commit()
-        report(f"Zoekgebied gewijzigd: {len(openstaand)} combinaties te doen.")
+        report(f"Zoekgebied gewijzigd: {len(openstaand)} gemeenten te doen.")
     elif not openstaand:
         if not (force or _should_discover(store, settings["discover_every_days"])):
             return 0
         openstaand = list(dekking)
 
     gevonden = 0
-    branches = 0
-    # Ruimte voor meerdere zoekopdrachten per beurt. Veel combinaties leveren
-    # niets op - een hovenier in een klein dorp staat vaak niet in OSM - en met
-    # een opdracht per beurt lijkt het dan alsof de machine stilstaat. De
-    # reservering is afgestemd op een gewone query van een paar seconden.
-    while openstaand and branches < MAX_ZOEKOPDRACHTEN and budget.allows(12, branches):
-        gebied, _, naam = openstaand[0].rpartition("::")
-        gebied = gebied or campaign.area
-        report(f"Bedrijven ophalen: {naam} in {gebied}...")
+    gedaan = 0
+    # Een opdracht per gemeente haalt alle branches tegelijk op, dus een handvol
+    # gemeenten per beurt dekt al veel. De reservering is afgestemd op een
+    # gewone query van een paar seconden.
+    while openstaand and gedaan < MAX_ZOEKOPDRACHTEN and budget.allows(12, gedaan):
+        gebied = openstaand[0] or campaign.area
+        report(f"Bedrijven ophalen in {gebied}...")
         # Nooit langer wachten dan er nog tijd is: anders kapt het platform de
         # functie af terwijl wij nog netjes hadden kunnen opslaan.
         wachttijd = 30.0 if budget.left == float("inf") else max(8.0, budget.left - 8)
         try:
             binnen = list(discover(
-                campaign, source=settings["source"], only_niche=naam,
+                campaign, source=settings["source"],
                 timeout=wachttijd, area=gebied,
                 alleen_zonder_website=settings.get("alleen_zonder_website", True),
             ))
         except Exception as exc:  # noqa: BLE001
             # Een storing bij Overpass mag de rest van de cyclus niet slopen:
             # beoordelen, demo's bouwen en versturen hebben er niets mee te
-            # maken. De branche blijft openstaan voor de volgende beurt.
+            # maken. De gemeente blijft openstaan voor de volgende beurt.
             database.set_meta(
                 store, "discover_pauze_tot", stamp(now() + timedelta(minutes=PAUZE_MINUTEN))
             )
             database.set_meta(store, "discover_pauze_reden", _kort(exc))
             store.commit()
             report(
-                f"Ophalen van {naam} in {gebied} lukte niet: {_kort(exc)}. "
+                f"Ophalen in {gebied} lukte niet: {_kort(exc)}. "
                 f"Volgende {PAUZE_MINUTEN} minuten geen zoekopdrachten; "
                 "de rest van de cyclus gaat door."
             )
             return gevonden
         nieuw = database.upsert_many(store, binnen)
         gevonden += nieuw
-        report(f"{naam} in {gebied}: {len(binnen)} gevonden, {nieuw} nieuw.")
+        # Erbij zeggen welke branches het waren: staat er twee keer achter
+        # elkaar niets, dan wil je kunnen zien of het aan de gemeente ligt of
+        # aan de lijst met tags.
+        soorten = Counter(lead["niche"] for lead in binnen)
+        samenvatting = ", ".join(f"{aantal}x {naam}" for naam, aantal in soorten.most_common(6))
+        report(
+            f"{gebied}: {len(binnen)} gevonden, {nieuw} nieuw"
+            + (f" ({samenvatting})" if samenvatting else " - hier staat niets in OpenStreetMap")
+            + "."
+        )
         openstaand.pop(0)
-        branches += 1
+        gedaan += 1
         database.set_meta(store, "discover_pending", json.dumps(openstaand))
         database.set_meta(store, "discover_pauze_tot", "")
         database.set_meta(store, "discover_pauze_reden", "")
         store.commit()
 
     if openstaand:
-        report(f"{gevonden} nieuw; nog {len(openstaand)} combinaties te gaan, volgende beurt verder.")
+        report(f"{gevonden} nieuw; nog {len(openstaand)} gemeenten te gaan, volgende beurt verder.")
     else:
         database.set_meta(store, "last_discover", stamp())
         database.set_meta(store, "discover_pending", "[]")

@@ -584,3 +584,62 @@ class TestAiTekst(unittest.TestCase):
         self.assertIn("Twee dagen rijzen.", html)
         # En de vaste tekst van de branche staat er dan niet meer.
         self.assertNotIn("Elke ochtend vers uit eigen oven", html)
+
+
+class TestGemeenteInEenOpdracht(unittest.TestCase):
+    """Een opdracht per branche kwam in een dorp bijna altijd met nul terug:
+    van een hovenier of dakdekker staan er in heel Nederland maar een paar
+    honderd in OpenStreetMap. Alle branches tegelijk vragen haalt in dezelfde
+    seconde alles op wat er in die gemeente te halen valt."""
+
+    def test_every_tag_from_every_branch_is_in_the_query(self):
+        from leadmachine.discover import build_query_gebied
+
+        camp = campaign()
+        query = build_query_gebied(camp, "Dongen", timeout=25)
+        for niche in camp.niches:
+            for filter_ in niche.filters:
+                key, _, value = filter_.partition("=")
+                self.assertIn(f'nwr["{key}"', query, f"{key} ontbreekt")
+                self.assertIn(value, query, f"{value} ontbreekt")
+
+    def test_one_selector_per_key(self):
+        """Niet een regel per tag, maar een regel per sleutel met alle waarden
+        erin. Anders is de opdracht net zo lang als eerst."""
+        from leadmachine.discover import build_query_gebied
+
+        query = build_query_gebied(campaign(), "Dongen", timeout=25)
+        self.assertEqual(query.count("nwr["), 7)   # shop, craft, office, amenity, ...
+        self.assertIn('area["name"="Dongen"]', query)
+
+    def test_websites_are_excluded_when_asked(self):
+        from leadmachine.discover import build_query_gebied
+
+        met = build_query_gebied(campaign(), "Dongen", alleen_zonder_website=False)
+        zonder = build_query_gebied(campaign(), "Dongen", alleen_zonder_website=True)
+        self.assertNotIn('[!"website"]', met)
+        self.assertEqual(zonder.count('[!"website"]'), 7)
+
+    def test_a_business_is_sorted_into_the_right_branch(self):
+        from leadmachine.discover import niche_van
+
+        camp = campaign()
+        self.assertEqual(niche_van({"shop": "bakery"}, camp.niches), "bakker")
+        self.assertEqual(niche_van({"craft": "gardener"}, camp.niches), "hovenier")
+        self.assertEqual(niche_van({"amenity": "dentist"}, camp.niches), "tandarts")
+        self.assertEqual(niche_van({"shop": "car_repair"}, camp.niches), "garage")
+        # Wat we niet zoeken laten we liggen; een lead zonder branche heeft
+        # geen kleur, geen kop en geen diensten.
+        self.assertIsNone(niche_van({"shop": "supermarket"}, camp.niches))
+        self.assertIsNone(niche_van({}, camp.niches))
+
+    def test_the_first_matching_branch_wins(self):
+        """Een bedrijf kan op twee lijstjes staan. Dan bepaalt de volgorde in de
+        config wie voorgaat, zodat dezelfde tags altijd hetzelfde uitpakken."""
+        from leadmachine.discover import niche_van
+
+        camp = campaign()
+        volgorde = [n.name for n in camp.niches]
+        uitkomst = niche_van({"shop": "car_repair", "shop:motorcycle": "yes"}, camp.niches)
+        self.assertEqual(uitkomst, "garage")
+        self.assertLess(volgorde.index("garage"), volgorde.index("autohandel"))

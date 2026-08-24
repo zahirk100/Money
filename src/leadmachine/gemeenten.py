@@ -79,35 +79,32 @@ def _ontdubbel(namen: list[str]) -> list[str]:
     return uniek
 
 
-def zoekvolgorde(niche_namen: list[str], door_elkaar: bool = True) -> list[str]:
-    """Alle combinaties van gemeente en branche, in de volgorde waarin we ze
-    afwerken.
+def zoekvolgorde(door_elkaar: bool = True) -> list[str]:
+    """De gemeenten in de volgorde waarin we ze afwerken.
 
     Puur loten klinkt eerlijk, maar levert weinig op: verreweg de meeste
     Nederlandse gemeenten zijn klein, dus een willekeurige greep is bijna altijd
     een dorp waar van een branche hooguit een of twee bedrijven in
     OpenStreetMap staan. Dan lijkt het alsof de machine niets vindt.
 
-    Daarom mengen we: twee opdrachten in een grote of middelgrote gemeente,
-    daarna een in een kleine. Binnen elke groep is de volgorde wel willekeurig,
-    zodat twee keer starten niet twee keer dezelfde lijst geeft.
+    Daarom mengen we: twee grote of middelgrote gemeenten, daarna een kleine.
+    Binnen elke groep is de volgorde wel willekeurig, zodat twee keer starten
+    niet twee keer dezelfde lijst geeft.
     """
     groot = _ontdubbel(GROTE_GEMEENTEN + MIDDELGROTE_GEMEENTEN)
     klein = [naam for naam in _ontdubbel(KLEINE_GEMEENTEN) if naam not in set(groot)]
-    dicht = [f"{g}::{n}" for g in groot for n in niche_namen]
-    dun = [f"{g}::{n}" for g in klein for n in niche_namen]
     if door_elkaar:
-        random.shuffle(dicht)
-        random.shuffle(dun)
+        random.shuffle(groot)
+        random.shuffle(klein)
 
     volgorde: list[str] = []
     i = j = 0
-    while i < len(dicht) or j < len(dun):
+    while i < len(groot) or j < len(klein):
         for _ in range(2):
-            if i < len(dicht):
-                volgorde.append(dicht[i])
+            if i < len(groot):
+                volgorde.append(groot[i])
                 i += 1
-        if j < len(dun):
-            volgorde.append(dun[j])
+        if j < len(klein):
+            volgorde.append(klein[j])
             j += 1
     return volgorde
