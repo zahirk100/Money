@@ -5,11 +5,6 @@
       "memory": 1024,
       "maxDuration": 60,
       "includeFiles": "{templates,config,data}/**"
-    },
-    "api/cron.py": {
-      "memory": 1024,
-      "maxDuration": 60,
-      "includeFiles": "{templates,config,data}/**"
     }
   },
   "crons": [

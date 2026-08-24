@@ -259,7 +259,14 @@ def _run_in_background(campaign: Campaign, target: str | None, trigger: str) -> 
 def make_handler(
     campaign: Campaign, target: str | None, token: str
 ) -> type[BaseHTTPRequestHandler]:
-    page = (TEMPLATE_DIR / "dashboard.html").read_text(encoding="utf-8")
+    def dashboard_pagina() -> str:
+        bestand = TEMPLATE_DIR / "dashboard.html"
+        if not bestand.exists():
+            raise FileNotFoundError(
+                f"templates/dashboard.html ontbreekt (gezocht in {TEMPLATE_DIR}). "
+                "Live betekent dat meestal dat de map templates niet is meegepakt."
+            )
+        return bestand.read_text(encoding="utf-8")
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "LeadMachine"
@@ -325,6 +332,36 @@ def make_handler(
                 self.headers.get("X-LM-Token", ""), token
             )
 
+        def _cron(self) -> None:
+            """Draait een stuk van de cyclus. Vercel roept dit aan volgens het
+            schema in vercel.json en stuurt CRON_SECRET mee als Bearer-token.
+            Zonder secret is het eindpunt dicht: anders kan iedereen die de URL
+            kent jouw campagne laten draaien."""
+            secret = os.environ.get("CRON_SECRET", "")
+            gegeven = self.headers.get("Authorization", "")
+            if not secret or not (
+                secrets.compare_digest(gegeven, f"Bearer {secret}")
+                or secrets.compare_digest(self.headers.get("X-Cron-Secret", ""), secret)
+            ):
+                self._json({"fout": "CRON_SECRET ontbreekt of klopt niet"}, 401)
+                return
+
+            budget = float(os.environ.get("CRON_BUDGET_SECONDS", "45"))
+            try:
+                store = self._store()
+            except OpslagOntbreekt as exc:
+                self._json({"status": "mislukt", "fout": str(exc)}, 503)
+                return
+            try:
+                counters = run_cycle(
+                    campaign, store, trigger="cron", budget_seconds=budget, report=_log
+                )
+                self._json({"status": "klaar", **counters})
+            except Exception as exc:  # noqa: BLE001 - liever een leesbare fout dan een kale 500
+                self._json({"status": "mislukt", "fout": str(exc)}, 500)
+            finally:
+                store.close()
+
         def _setup_page(self) -> None:
             items = "".join(
                 f"<li><code>{naam}</code> &mdash; {uitleg}</li>"
@@ -346,6 +383,9 @@ def make_handler(
             if path.startswith("/demo/"):
                 self._serve_demo(path[len("/demo/"):])   # openbaar: dit is de pagina die je klant opent
                 return
+            if path == "/api/cron":
+                self._cron()
+                return
             if path in {"/gezond", "/health"}:
                 self._json({"status": "ok", "klaar": not _ontbrekende_instellingen(target)})
                 return
@@ -364,7 +404,11 @@ def make_handler(
                     self._login_page()
                 return
             if path in {"/", "/index.html"}:
-                self._send(200, page.replace("__TOKEN__", token).encode(), "text/html; charset=utf-8")
+                self._send(
+                    200,
+                    dashboard_pagina().replace("__TOKEN__", token).encode(),
+                    "text/html; charset=utf-8",
+                )
                 return
             if not path.startswith("/api/"):
                 self._json({"fout": "niet gevonden"}, 404)
@@ -400,6 +444,10 @@ def make_handler(
 
         def do_POST(self) -> None:  # noqa: N802
             path, _query = self._route()
+
+            if path == "/api/cron":
+                self._cron()
+                return
 
             if path == "/login":
                 length = int(self.headers.get("Content-Length", 0) or 0)

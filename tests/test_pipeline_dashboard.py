@@ -219,6 +219,26 @@ class TestDashboardServer(unittest.TestCase):
         result = self.post("/api/index?__lm_path=/api/lead/1/demo", token=self.token)
         self.assertIn("demo", result)
 
+    def test_cron_route_needs_the_secret(self):
+        os.environ["CRON_SECRET"] = "cron-geheim"
+        try:
+            with self.assertRaises(urllib.error.HTTPError) as ctx:
+                urllib.request.urlopen(self.base + "/api/cron", timeout=10)
+            self.assertEqual(ctx.exception.code, 401)
+
+            request = urllib.request.Request(
+                self.base + "/api/cron", headers={"Authorization": "Bearer cron-geheim"})
+            with urllib.request.urlopen(request, timeout=60) as resp:
+                self.assertEqual(json.loads(resp.read())["status"], "klaar")
+        finally:
+            os.environ.pop("CRON_SECRET", None)
+
+    def test_cron_route_is_shut_without_a_secret_configured(self):
+        os.environ.pop("CRON_SECRET", None)
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(self.base + "/api/cron", timeout=10)
+        self.assertEqual(ctx.exception.code, 401)
+
     def test_unknown_route_is_a_clean_404(self):
         with self.assertRaises(urllib.error.HTTPError) as ctx:
             self.get("/api/bestaat-niet")

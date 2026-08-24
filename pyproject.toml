@@ -1,0 +1,5 @@
+# Alleen hier zodat Vercel weet welk entrypoint het moet gebruiken.
+# De dependencies staan in requirements.txt.
+
+[tool.vercel]
+entrypoint = "api.index:handler"

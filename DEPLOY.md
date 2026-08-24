@@ -117,6 +117,15 @@ Op het gratis Hobby-plan mag een cron **een keer per dag** draaien. Wil je vaker
 Pro-abonnement nodig. Het eindpunt is daarop gebouwd: elke aanroep doet een
 stukje.
 
+Alles draait in een functie: het dashboard, de API, de demopagina's en de cron.
+Vercel wil een entrypoint dat het statisch kan vinden, en dat staat in
+`pyproject.toml`:
+
+```toml
+[tool.vercel]
+entrypoint = "api.index:handler"
+```
+
 Zet daarna `LM_ENABLED=true`. Pas dan gaat er echt mail de deur uit.
 
 Zelf een cyclus starten zonder te wachten:
