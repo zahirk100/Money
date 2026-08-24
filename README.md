@@ -11,9 +11,17 @@ werkt niet meer en verbrandt alleen je domeinnaam.
 ## Hoe het werkt
 
 ```
-discover  ->  audit  ->  demo  ->  draft/calllist  ->  send
-bedrijven     score      site      mail of belllijst   versturen
-uit OSM       0-100      per lead  met openingszin     met limieten
+discover  ->  audit  ->  demo  ->  wachtrij  ->  send
+bedrijven     score      site      mail met      versturen
+uit OSM       0-100      per lead  wachttijd     met limieten
+```
+
+Dat hele rijtje zit in een commando:
+
+```bash
+python -m leadmachine run          # een volledige cyclus
+python -m leadmachine autopilot    # elke dag vanzelf
+python -m leadmachine dashboard    # zien wat er gebeurt
 ```
 
 1. **discover** haalt bedrijven op uit OpenStreetMap via de Overpass API.
@@ -42,7 +50,67 @@ export PYTHONPATH=src
 Vul in `config/campaign.yaml` je regio, je branches en je afzendergegevens in.
 Zonder naam, adres en mailadres weigert de tool te versturen.
 
-## Gebruik
+## Automatisch draaien
+
+```bash
+python -m leadmachine autopilot          # blijft draaien, start elke dag om run_at
+python -m leadmachine autopilot --once   # een keer draaien (voor cron of Taakplanner)
+```
+
+Zet in `config/campaign.yaml` onder `autopilot`:
+
+```yaml
+autopilot:
+  enabled: true        # zonder dit doet de machine alles behalve versturen
+  run_at: "09:15"
+  mails_per_run: 20
+  send_mode: review    # review = eerst in de wachtrij, auto = direct weg
+  review_hours: 12
+  min_score: 45
+```
+
+**`review` of `auto`.** In `review` belandt elke mail eerst in de wachtrij en
+vertrekt hij pas na `review_hours`. Tot dat moment kun je hem in het dashboard
+lezen, tegenhouden of juist meteen versturen. In `auto` gaat alles direct weg.
+
+Begin met `review` en een lage `mails_per_run`. Eén fout in je tekst gaat er
+anders vijfentwintig keer per dag uit, en je domeinnaam is binnen een week
+verbrand bij de spamfilters. Zet `auto` pas aan als je een week lang hebt gezien
+dat de mails kloppen.
+
+Liever de planner van je besturingssysteem dan een proces dat blijft draaien:
+
+```bash
+# cron (Linux/macOS) - elke werkdag om 09:15
+15 9 * * 1-5 cd /pad/naar/Money && PYTHONPATH=src python3 -m leadmachine autopilot --once >> out/autopilot.log 2>&1
+```
+
+## Het dashboard
+
+```bash
+python -m leadmachine dashboard        # http://127.0.0.1:8765
+```
+
+Vier tabbladen:
+
+- **Overzicht** - hoeveel bedrijven gevonden, hoeveel kansrijk, hoeveel demo's,
+  wat er in de wachtrij staat en wat er verstuurd is; een grafiek van de laatste
+  veertien dagen, een trechter van vondst tot verstuurde mail, en het logboek van
+  elke draaibeurt. De knop **Nu draaien** start een cyclus terwijl je meekijkt.
+- **Leads** - alles op volgorde van score, met filters en zoeken. Per lead zie je
+  wat er mis is, kun je de demo bekijken, een mail klaarzetten of het bedrijf op
+  de afmeldlijst zetten.
+- **Wachtrij** - wat er klaarstaat en wanneer het weggaat. Lezen, nu sturen of
+  tegenhouden.
+- **Verzonden** - alles wat de deur uit is, inclusief mislukte pogingen met de
+  foutmelding erbij.
+
+Het dashboard luistert alleen op `127.0.0.1` en schrijfacties vereisen een token
+dat bij het starten wordt aangemaakt en alleen in de pagina zelf staat. Zo kan een
+willekeurige website die je open hebt staan niet stiekem jouw lokale server
+aansturen.
+
+## Alle commando's
 
 ```bash
 python -m leadmachine init
@@ -58,11 +126,12 @@ python -m leadmachine stats                    # stand van de pijplijn
 python -m leadmachine suppress info@bedrijf.nl # afmelding verwerken
 ```
 
-Alles offline uitproberen, zonder internet en zonder echte bedrijven:
+Alles offline uitproberen, zonder internet en zonder echte bedrijven - zet
+`autopilot.source` op `fixture` en draai:
 
 ```bash
-python -m leadmachine discover --source fixture
-python -m leadmachine audit --offline
+python -m leadmachine run --offline --dry-run
+python -m leadmachine dashboard
 ```
 
 De demo's komen in `out/demos/`, de conceptmails in `out/outreach/`, de
@@ -84,7 +153,10 @@ het is precies de reden dat ondernemers er ontspannen op reageren.
 
 Niet als advies in een handleiding, maar afgedwongen:
 
-- `send` verstuurt niets zonder `--confirm`; standaard is elke run een proefdraai.
+- Versturen gebeurt alleen als `autopilot.enabled` op true staat of als je
+  `--confirm` meegeeft. Standaard doet de machine alles behalve versturen.
+- In `review` staat elke mail eerst in de wachtrij; vlak voor verzending wordt
+  opnieuw op de afmeldlijst gecontroleerd.
 - Harde dagelijkse limiet (standaard 25) en pauze tussen verzendingen.
 - Afzendergegevens en een afmeldregel staan verplicht in elke mail.
 - Wie op de afmeldlijst staat, wordt overgeslagen - op adres én op domein.
@@ -119,7 +191,9 @@ bellen mag - het bel-me-niet-register geldt alleen voor consumenten.
 ## Tests
 
 ```bash
-python tests/test_leadmachine.py       # of: python -m pytest tests -q
+python tests/test_leadmachine.py            # audit, demo, mail, database
+python tests/test_pipeline_dashboard.py     # cyclus, wachtrij, dashboard
 ```
 
-Draait volledig offline: geen netwerk, geen echte database, geen echte bedrijven.
+Veertig tests, volledig offline: geen netwerk, geen echte database, geen echte
+bedrijven, en er wordt nooit een mail verstuurd.

@@ -63,6 +63,26 @@ outreach:
   cooldown_days: 90
   suppression_file: "suppression.txt"
 
+autopilot:
+  # Zet op true en de machine mag zelf zoeken, bouwen, opstellen en versturen.
+  # Staat hij uit, dan doet 'run' alles behalve versturen.
+  enabled: false
+  # Tijdstip waarop de dagelijkse cyclus start (lokale tijd).
+  run_at: "09:15"
+  # Nieuwe bedrijven ophalen kost tijd en levert dagelijks niets nieuws op.
+  discover_every_days: 7
+  audits_per_run: 200
+  demos_per_run: 25
+  mails_per_run: 20
+  # auto   = direct versturen
+  # review = eerst in de wachtrij, zodat je in het dashboard nog kunt ingrijpen
+  send_mode: review
+  review_hours: 12
+  # Onder deze score niet mailen; die bedrijven hebben je niet nodig.
+  min_score: 45
+  # 'overpass' voor echte data, 'fixture' om offline te oefenen.
+  source: overpass
+
 offer:
   # Wat je verkoopt. Komt terug in de mail en op de demo-pagina.
   product: "een complete website inclusief teksten, foto's en Google-vindbaarheid"

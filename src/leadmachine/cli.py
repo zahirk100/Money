@@ -13,6 +13,8 @@ import argparse
 import json
 import os
 import sys
+import time
+from datetime import datetime, time as dt_time, timedelta
 from pathlib import Path
 
 from . import db as database
@@ -21,6 +23,8 @@ from .audit import audit_lead, top_pitches
 from .config import DEFAULT_DB, OUT_DIR, Campaign, ConfigError, load_campaign, load_dotenv
 from .demo import render_demo
 from .http import PoliteClient
+from .dashboard import serve
+from .pipeline import autopilot_settings, run_cycle, send_due
 from .outreach import (
     Mailer,
     OutreachError,
@@ -144,7 +148,7 @@ def cmd_draft(args: argparse.Namespace) -> int:
             database.log_outreach(
                 conn, row["id"], channel="email", template=args.template,
                 to_addr=message["to"], subject=message["subject"],
-                body=message["body"], status="drafted",
+                body=message["body"], status="concept",
             )
             made += 1
             print(f"{GREEN}concept{RESET}  {row['name'][:36]:<36} {path.name}")
@@ -202,7 +206,7 @@ def cmd_send(args: argparse.Namespace) -> int:
                         database.log_outreach(
                             conn, row["id"], channel="email", template=args.template,
                             to_addr=message["to"], subject=message["subject"],
-                            body=message["body"], status="sent",
+                            body=message["body"], status="verstuurd",
                         )
                         conn.commit()
                         sent += 1
@@ -211,7 +215,7 @@ def cmd_send(args: argparse.Namespace) -> int:
                         database.log_outreach(
                             conn, row["id"], channel="email", template=args.template,
                             to_addr=message["to"], subject=message["subject"],
-                            status="failed", error=str(exc),
+                            status="mislukt", error=str(exc),
                         )
                         conn.commit()
                         failed += 1
@@ -222,6 +226,72 @@ def cmd_send(args: argparse.Namespace) -> int:
             print(f"{RED}{exc}{RESET}")
             return 1
     print(f"\n{sent} verstuurd, {failed} mislukt. Vandaag totaal: {already + sent}/{daily_limit}.")
+    return 0
+
+
+def cmd_run(args: argparse.Namespace) -> int:
+    """Een volledige cyclus: zoeken, beoordelen, bouwen, opstellen, versturen."""
+    campaign = load_campaign(args.config)
+    campaign.require_sender()
+    settings = autopilot_settings(campaign)
+    live = True if args.confirm else (False if args.dry_run else None)
+
+    with database.session(args.db) as conn:
+        counters = run_cycle(
+            campaign, conn, trigger=args.trigger, live=live,
+            report=lambda line: print(f"{DIM}{line}{RESET}"),
+            force_discover=args.discover,
+            offline=args.offline,
+        )
+
+    print(
+        f"\n{GREEN}Klaar.{RESET} {counters['discovered']} nieuw, {counters['audited']} beoordeeld, "
+        f"{counters['demos']} demo's, {counters['queued']} klaargezet, {counters['sent']} verstuurd"
+        + (f", {counters['failed']} mislukt" if counters["failed"] else "") + "."
+    )
+    if not settings["enabled"] and not args.confirm:
+        print(f"{DIM}Versturen stond uit. Zet autopilot.enabled op true of gebruik --confirm.{RESET}")
+    return 0
+
+
+def cmd_autopilot(args: argparse.Namespace) -> int:
+    """Draait de cyclus elke dag op het ingestelde tijdstip."""
+    campaign = load_campaign(args.config)
+    campaign.require_sender()
+    settings = autopilot_settings(campaign)
+
+    if args.once:
+        with database.session(args.db) as conn:
+            run_cycle(campaign, conn, trigger="autopilot",
+                      report=lambda line: print(f"{DIM}{line}{RESET}"))
+        return 0
+
+    hour, _, minute = settings["run_at"].partition(":")
+    target = dt_time(int(hour), int(minute or 0))
+    print(f"{GREEN}Autopilot gestart.{RESET} Draait elke dag om {settings['run_at']}.")
+    if not settings["enabled"]:
+        print(f"{YELLOW}Let op: autopilot.enabled staat op false, dus er wordt niets verstuurd.{RESET}")
+    print("Stoppen met Ctrl-C.\n")
+
+    while True:
+        now = datetime.now()
+        next_run = now.replace(hour=target.hour, minute=target.minute, second=0, microsecond=0)
+        if next_run <= now:
+            next_run += timedelta(days=1)
+        wait = (next_run - now).total_seconds()
+        print(f"{DIM}Volgende cyclus: {next_run:%d-%m-%Y %H:%M}{RESET}")
+        time.sleep(wait)
+        try:
+            with database.session(args.db) as conn:
+                run_cycle(campaign, conn, trigger="autopilot",
+                          report=lambda line: print(f"{DIM}{line}{RESET}"))
+        except Exception as exc:  # noqa: BLE001 - morgen gewoon weer proberen
+            print(f"{RED}Cyclus mislukt: {exc}{RESET}")
+
+
+def cmd_dashboard(args: argparse.Namespace) -> int:
+    campaign = load_campaign(args.config)
+    serve(campaign, args.db, host=args.host, port=args.port)
     return 0
 
 
@@ -341,6 +411,23 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--niche", default=None)
     p.add_argument("-v", "--verbose", action="store_true")
     p.set_defaults(func=cmd_list)
+
+    p = sub.add_parser("run", help="een volledige cyclus draaien")
+    p.add_argument("--confirm", action="store_true", help="versturen, ook als autopilot uit staat")
+    p.add_argument("--dry-run", action="store_true", help="nooit versturen, wat de config ook zegt")
+    p.add_argument("--discover", action="store_true", help="altijd opnieuw bedrijven ophalen")
+    p.add_argument("--offline", action="store_true", help="websites niet ophalen, alleen op OSM-gegevens")
+    p.add_argument("--trigger", default="handmatig", help="naam die in het overzicht komt te staan")
+    p.set_defaults(func=cmd_run)
+
+    p = sub.add_parser("autopilot", help="dagelijks automatisch draaien")
+    p.add_argument("--once", action="store_true", help="een keer draaien en stoppen (voor cron)")
+    p.set_defaults(func=cmd_autopilot)
+
+    p = sub.add_parser("dashboard", help="het dashboard openen in je browser")
+    p.add_argument("--port", type=int, default=8765)
+    p.add_argument("--host", default="127.0.0.1")
+    p.set_defaults(func=cmd_dashboard)
 
     sub.add_parser("stats", help="overzicht van de pijplijn").set_defaults(func=cmd_stats)
 

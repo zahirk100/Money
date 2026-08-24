@@ -1,0 +1,475 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lead-machine</title>
+<link rel="icon" href="data:,">
+<style>
+  :root{
+    color-scheme: light;
+    --plane:#f9f9f7; --surface:#fcfcfb;
+    --ink:#0b0b0b; --ink-2:#52514e; --muted:#898781;
+    --grid:#e1e0d9; --axis:#c3c2b7; --border:rgba(11,11,11,.10);
+    --series-1:#2a78d6;
+    --ord-1:#86b6ef; --ord-2:#3987e5; --ord-3:#184f95;
+    --good:#0ca30c; --warning:#fab219; --critical:#d03b3b;
+    --radius:12px;
+    --font:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:where(:not([data-theme="light"])){
+      color-scheme: dark;
+      --plane:#0d0d0d; --surface:#1a1a19;
+      --ink:#ffffff; --ink-2:#c3c2b7; --muted:#898781;
+      --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,.10);
+      --series-1:#3987e5;
+      --ord-1:#9ec5f4; --ord-2:#5598e7; --ord-3:#256abf;
+    }
+  }
+  :root[data-theme="dark"]{
+    color-scheme: dark;
+    --plane:#0d0d0d; --surface:#1a1a19;
+    --ink:#ffffff; --ink-2:#c3c2b7; --muted:#898781;
+    --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,.10);
+    --series-1:#3987e5;
+    --ord-1:#9ec5f4; --ord-2:#5598e7; --ord-3:#256abf;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--plane);color:var(--ink);font-family:var(--font);line-height:1.5;font-size:15px}
+  a{color:var(--series-1)}
+  .wrap{max-width:1240px;margin:0 auto;padding:0 20px 64px}
+  header{border-bottom:1px solid var(--border);background:var(--surface);position:sticky;top:0;z-index:30}
+  .bar{max-width:1240px;margin:0 auto;padding:14px 20px;display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+  .brand{font-weight:700;letter-spacing:-.02em;font-size:1.05rem}
+  .brand span{color:var(--series-1)}
+  .tabs{display:flex;gap:4px;margin-left:auto;flex-wrap:wrap}
+  .tab{background:none;border:1px solid transparent;color:var(--ink-2);padding:7px 14px;border-radius:999px;
+       font:inherit;font-size:.92rem;cursor:pointer}
+  .tab:hover{background:var(--plane)}
+  .tab[aria-selected="true"]{background:var(--plane);border-color:var(--border);color:var(--ink);font-weight:600}
+  .btn{background:var(--series-1);color:#fff;border:0;padding:8px 16px;border-radius:8px;font:inherit;
+       font-size:.9rem;font-weight:600;cursor:pointer}
+  .btn:disabled{opacity:.5;cursor:default}
+  .btn.sec{background:transparent;color:var(--ink);border:1px solid var(--border)}
+  .btn.sm{padding:5px 11px;font-size:.83rem;font-weight:500}
+  h1{font-size:1.5rem;letter-spacing:-.02em;margin:28px 0 4px}
+  h2{font-size:1.05rem;letter-spacing:-.01em;margin:0 0 2px}
+  .sub{color:var(--ink-2);margin:0 0 18px;font-size:.92rem}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px}
+  .row{display:grid;gap:16px;margin-bottom:16px}
+  @media(min-width:900px){ .row.two{grid-template-columns:1.45fr 1fr} }
+
+  /* Stat tiles: het getal is de grafiek. */
+  .tiles{display:grid;gap:12px;grid-template-columns:repeat(2,1fr);margin:0 0 16px}
+  @media(min-width:760px){ .tiles{grid-template-columns:repeat(5,1fr)} }
+  .tile{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px}
+  .tile .label{color:var(--ink-2);font-size:.82rem;margin:0 0 6px}
+  .tile .value{font-size:1.9rem;font-weight:700;letter-spacing:-.03em;line-height:1.1}
+  .tile .foot{color:var(--muted);font-size:.78rem;margin-top:4px}
+
+  table{width:100%;border-collapse:collapse;font-size:.9rem}
+  th{text-align:left;color:var(--ink-2);font-weight:600;font-size:.78rem;text-transform:uppercase;
+     letter-spacing:.04em;padding:0 10px 8px;border-bottom:1px solid var(--grid)}
+  td{padding:10px;border-bottom:1px solid var(--grid);vertical-align:top}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+  tbody tr:hover{background:var(--plane)}
+  .scroll{overflow-x:auto}
+
+  .badge{display:inline-flex;align-items:center;gap:6px;font-size:.76rem;font-weight:600;
+         padding:3px 9px;border-radius:999px;border:1px solid var(--border);white-space:nowrap}
+  .dot{width:8px;height:8px;border-radius:50%;flex:none}
+  .pitch{color:var(--ink-2);font-size:.85rem;margin-top:4px;max-width:60ch}
+  .muted{color:var(--muted)}
+  .toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+  input[type=search],select{background:var(--surface);color:var(--ink);border:1px solid var(--border);
+    border-radius:8px;padding:7px 11px;font:inherit;font-size:.9rem}
+  .log{background:var(--plane);border:1px solid var(--border);border-radius:8px;padding:12px;
+       font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.8rem;color:var(--ink-2);
+       max-height:190px;overflow:auto;white-space:pre-wrap}
+  dialog{border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);color:var(--ink);
+         max-width:760px;width:92%;padding:0}
+  dialog::backdrop{background:rgba(0,0,0,.45)}
+  .dlg-head{padding:18px 22px;border-bottom:1px solid var(--grid);display:flex;justify-content:space-between;gap:16px;align-items:start}
+  .dlg-body{padding:18px 22px;max-height:66vh;overflow:auto}
+  pre.mail{background:var(--plane);border:1px solid var(--border);border-radius:8px;padding:14px;
+           white-space:pre-wrap;font-size:.84rem;line-height:1.55}
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:4px 16px;font-size:.88rem;margin:0 0 16px}
+  .kv dt{color:var(--ink-2)}
+  .kv dd{margin:0}
+  .empty{color:var(--muted);padding:26px 10px;text-align:center;font-size:.9rem}
+  .tip{position:fixed;pointer-events:none;background:var(--surface);border:1px solid var(--border);
+       border-radius:8px;padding:7px 10px;font-size:.82rem;box-shadow:0 6px 20px rgba(0,0,0,.14);
+       opacity:0;transition:opacity .1s;z-index:60}
+  svg text{font-family:var(--font)}
+  .hidden{display:none}
+</style>
+</head>
+<body data-token="__TOKEN__">
+
+<header>
+  <div class="bar">
+    <div class="brand">Lead<span>machine</span></div>
+    <div class="tabs" role="tablist">
+      <button class="tab" role="tab" aria-selected="true" data-view="overzicht">Overzicht</button>
+      <button class="tab" role="tab" aria-selected="false" data-view="leads">Leads</button>
+      <button class="tab" role="tab" aria-selected="false" data-view="wachtrij">Wachtrij</button>
+      <button class="tab" role="tab" aria-selected="false" data-view="verzonden">Verzonden</button>
+    </div>
+    <button class="btn" id="run-btn">Nu draaien</button>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <section id="view-overzicht">
+    <h1>Overzicht</h1>
+    <p class="sub" id="ap-line">&nbsp;</p>
+    <div class="tiles" id="tiles"></div>
+
+    <div class="row two">
+      <div class="card">
+        <h2>Verstuurde mails per dag</h2>
+        <p class="sub">Laatste veertien dagen.</p>
+        <div id="chart-sent"></div>
+      </div>
+      <div class="card">
+        <h2>Van vondst tot mail</h2>
+        <p class="sub">Waar de bedrijven blijven hangen.</p>
+        <div id="chart-funnel"></div>
+      </div>
+    </div>
+
+    <div class="row two">
+      <div class="card">
+        <h2>Laatste draaibeurten</h2>
+        <p class="sub">Wat de machine per keer heeft gedaan.</p>
+        <div class="scroll"><table id="runs"></table></div>
+      </div>
+      <div class="card">
+        <h2>Live meekijken</h2>
+        <p class="sub">Verschijnt zodra er een cyclus draait.</p>
+        <div class="log" id="log">Nog niets gedraaid in deze sessie.</div>
+      </div>
+    </div>
+  </section>
+
+  <section id="view-leads" class="hidden">
+    <h1>Leads</h1>
+    <p class="sub">Gesorteerd op hoeveel er te winnen valt. Klik op een rij voor de details.</p>
+    <div class="toolbar">
+      <input type="search" id="q" placeholder="Zoek op naam...">
+      <select id="segment">
+        <option value="">Alle segmenten</option>
+        <option value="hot">Kansrijk</option>
+        <option value="warm">Redelijk</option>
+        <option value="cold">Weinig kans</option>
+      </select>
+      <select id="niche"><option value="">Alle branches</option></select>
+    </div>
+    <div class="card scroll"><table id="leads"></table></div>
+  </section>
+
+  <section id="view-wachtrij" class="hidden">
+    <h1>Wachtrij</h1>
+    <p class="sub">Deze mails gaan vanzelf de deur uit. Tot dat moment kun je ze nog tegenhouden.</p>
+    <div class="toolbar">
+      <button class="btn sec" id="send-due">Wat aan de beurt is nu versturen</button>
+    </div>
+    <div class="card scroll"><table id="queue"></table></div>
+  </section>
+
+  <section id="view-verzonden" class="hidden">
+    <h1>Verzonden</h1>
+    <p class="sub">Alles wat de deur uit is gegaan, inclusief mislukte pogingen.</p>
+    <div class="card scroll"><table id="sent"></table></div>
+  </section>
+</div>
+
+<dialog id="dlg"><div class="dlg-head"><div><h2 id="dlg-title"></h2><p class="sub" id="dlg-sub"></p></div>
+<button class="btn sec sm" onclick="document.getElementById('dlg').close()">Sluiten</button></div>
+<div class="dlg-body" id="dlg-body"></div></dialog>
+
+<div class="tip" id="tip"></div>
+
+<script>
+const TOKEN = document.body.dataset.token;
+const tip = document.getElementById('tip');
+
+const get  = (url) => fetch(url).then(r => r.json());
+const post = (url) => fetch(url, {method:'POST', headers:{'X-LM-Token': TOKEN}}).then(r => r.json());
+
+const fmt = (n) => (n ?? 0).toLocaleString('nl-NL');
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const dag = (s) => s ? new Date(s.replace(' ', 'T')).toLocaleDateString('nl-NL', {day:'numeric', month:'short'}) : '-';
+const tijd = (s) => s ? new Date(s.replace(' ', 'T')).toLocaleString('nl-NL', {day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'}) : '-';
+
+const SEGMENT = {
+  hot:  {label:'Kansrijk',     kleur:'var(--ord-3)'},
+  warm: {label:'Redelijk',     kleur:'var(--ord-2)'},
+  cold: {label:'Weinig kans',  kleur:'var(--ord-1)'},
+};
+const STATUS = {
+  wacht:       {label:'In wachtrij', kleur:'var(--warning)'},
+  verstuurd:   {label:'Verstuurd',   kleur:'var(--good)'},
+  mislukt:     {label:'Mislukt',     kleur:'var(--critical)'},
+  geannuleerd: {label:'Geannuleerd', kleur:'var(--muted)'},
+  concept:     {label:'Concept',     kleur:'var(--muted)'},
+};
+const badge = (map, key) => {
+  const m = (map[key] || {label:key || '-', kleur:'var(--muted)'});
+  return `<span class="badge"><span class="dot" style="background:${m.kleur}"></span>${esc(m.label)}</span>`;
+};
+
+/* ---------- grafieken ---------------------------------------------------- */
+function showTip(evt, html){
+  tip.innerHTML = html;
+  tip.style.opacity = 1;
+  const pad = 14;
+  tip.style.left = Math.min(evt.clientX + pad, innerWidth - tip.offsetWidth - 8) + 'px';
+  tip.style.top  = Math.max(evt.clientY - tip.offsetHeight - pad, 8) + 'px';
+}
+const hideTip = () => { tip.style.opacity = 0; };
+
+function barChart(el, data){
+  const W = el.clientWidth || 640, H = 260, L = 34, R = 8, T = 12, B = 26;
+  const max = Math.max(1, ...data.map(d => d.aantal));
+  const step = (W - L - R) / data.length;
+  const bw = Math.max(6, step - 2);              // 2px tussenruimte tussen staven
+  const y = v => T + (H - T - B) * (1 - v / max);
+  const ticks = [0, Math.round(max/2), max].filter((v,i,a) => a.indexOf(v) === i);
+
+  const grid = ticks.map(v => `
+    <line x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--grid)" stroke-width="1"/>
+    <text x="${L-8}" y="${y(v)+4}" text-anchor="end" font-size="11" fill="var(--muted)">${v}</text>`).join('');
+
+  const bars = data.map((d, i) => {
+    const h = Math.max(d.aantal ? 3 : 0, (H - T - B) * d.aantal / max);
+    const x = L + i * step + (step - bw) / 2;
+    return `<rect class="bar" x="${x}" y="${H-B-h}" width="${bw}" height="${h}" rx="4" ry="4"
+             fill="var(--series-1)" data-dag="${d.dag}" data-aantal="${d.aantal}"/>`;
+  }).join('');
+
+  const labels = data.map((d, i) => ((data.length - 1 - i) % 3 === 0)
+    ? `<text x="${L + i*step + step/2}" y="${H-8}" text-anchor="middle" font-size="11" fill="var(--muted)">${dag(d.dag)}</text>` : '').join('');
+
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img"
+      aria-label="Verstuurde mails per dag, laatste veertien dagen">
+      ${grid}${bars}
+      <line x1="${L}" x2="${W-R}" y1="${H-B}" y2="${H-B}" stroke="var(--axis)" stroke-width="1"/>
+      ${labels}</svg>`;
+
+  el.querySelectorAll('.bar').forEach(bar => {
+    bar.addEventListener('mousemove', e => showTip(e,
+      `<strong>${fmt(bar.dataset.aantal)}</strong> verstuurd<br><span class="muted">${dag(bar.dataset.dag)}</span>`));
+    bar.addEventListener('mouseleave', hideTip);
+  });
+}
+
+function funnelChart(el, data){
+  const instroom = Math.max(1, data[0].aantal);
+  el.innerHTML = data.map((d, i) => {
+    const pct = Math.round(100 * d.aantal / instroom);
+    const vorige = i ? data[i-1].aantal : null;
+    const verlies = vorige ? ` &middot; ${Math.round(100 * d.aantal / Math.max(1, vorige))}% van de vorige stap` : '';
+    return `<div style="margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;font-size:.86rem;margin-bottom:5px">
+        <span>${esc(d.stap)}</span>
+        <span style="font-variant-numeric:tabular-nums;font-weight:600">${fmt(d.aantal)}</span>
+      </div>
+      <div style="height:10px;background:var(--grid);border-radius:5px;overflow:hidden">
+        <div style="height:100%;width:${pct}%;background:var(--series-1);border-radius:5px"></div>
+      </div>
+      <div class="muted" style="font-size:.76rem;margin-top:3px">${pct}% van de instroom${verlies}</div>
+    </div>`;
+  }).join('');
+}
+
+/* ---------- weergaven ---------------------------------------------------- */
+let overzichtData = null;
+
+async function laadOverzicht(){
+  const d = await get('/api/overview');
+  overzichtData = d;
+  const s = d.stats, ap = d.autopilot;
+
+  document.getElementById('ap-line').innerHTML = ap.enabled
+    ? `Autopilot staat <strong>aan</strong> voor ${esc(ap.area)} &middot; draait dagelijks om ${esc(ap.run_at)} &middot;
+       maximaal ${ap.mails_per_run} mails per keer, ${ap.daily_limit} per dag &middot;
+       versturen: ${ap.send_mode === 'auto' ? 'direct' : ap.review_hours + ' uur wachttijd'}`
+    : `Autopilot staat <strong>uit</strong> &middot; zet <code>autopilot.enabled: true</code> in je campagne-config om automatisch te draaien.`;
+
+  document.getElementById('tiles').innerHTML = [
+    ['Bedrijven gevonden', fmt(s.leads),      `${fmt(s.no_website)} zonder website`],
+    ['Kansrijk',           fmt(s.per_segment?.hot || 0), `van ${fmt(s.audited)} beoordeeld`],
+    ["Demo's gebouwd",     fmt(s.demos),      'klaar om te tonen'],
+    ['In de wachtrij',     fmt(s.queued),     'gaat vanzelf de deur uit'],
+    ['Verstuurd',          fmt(s.sent),       `${fmt(s.sent_today)} vandaag`],
+  ].map(([label, value, foot]) => `
+    <div class="tile"><p class="label">${label}</p>
+      <div class="value">${value}</div><div class="foot">${foot}</div></div>`).join('');
+
+  barChart(document.getElementById('chart-sent'), d.sent_per_day);
+  funnelChart(document.getElementById('chart-funnel'), d.funnel);
+
+  document.getElementById('runs').innerHTML = d.runs.length ? `
+    <thead><tr><th>Wanneer</th><th>Aanleiding</th><th class="num">Nieuw</th><th class="num">Beoordeeld</th>
+    <th class="num">Demo's</th><th class="num">Klaargezet</th><th class="num">Verstuurd</th><th>Status</th></tr></thead>
+    <tbody>${d.runs.map(r => `<tr>
+      <td>${tijd(r.started_at)}</td><td class="muted">${esc(r.trigger)}</td>
+      <td class="num">${fmt(r.discovered)}</td><td class="num">${fmt(r.audited)}</td>
+      <td class="num">${fmt(r.demos)}</td><td class="num">${fmt(r.queued)}</td><td class="num">${fmt(r.sent)}</td>
+      <td>${r.status === 'mislukt'
+            ? `<span class="badge"><span class="dot" style="background:var(--critical)"></span>Mislukt</span>`
+            : `<span class="badge"><span class="dot" style="background:var(--good)"></span>${esc(r.status)}</span>`}</td>
+    </tr>`).join('')}</tbody>` : '<tbody><tr><td class="empty">Nog niets gedraaid.</td></tr></tbody>';
+
+  document.getElementById('run-btn').disabled = d.running;
+  document.getElementById('run-btn').textContent = d.running ? 'Bezig...' : 'Nu draaien';
+}
+
+async function laadLeads(){
+  const q = document.getElementById('q').value;
+  const segment = document.getElementById('segment').value;
+  const niche = document.getElementById('niche').value;
+  const leads = await get(`/api/leads?q=${encodeURIComponent(q)}&segment=${segment}&niche=${encodeURIComponent(niche)}`);
+
+  const sel = document.getElementById('niche');
+  if (sel.options.length === 1 && overzichtData){
+    (overzichtData.stats.per_niche || []).forEach(n => {
+      if (!n.niche) return;
+      const o = document.createElement('option'); o.value = n.niche; o.textContent = n.niche; sel.appendChild(o);
+    });
+  }
+
+  document.getElementById('leads').innerHTML = leads.length ? `
+    <thead><tr><th class="num">Score</th><th>Bedrijf</th><th>Branche</th><th>Contact</th>
+    <th>Demo</th><th>Mail</th><th></th></tr></thead>
+    <tbody>${leads.map(l => `<tr>
+      <td class="num"><strong>${fmt(l.score)}</strong><br>${badge(SEGMENT, l.segment)}</td>
+      <td><strong>${esc(l.name)}</strong>${l.city ? ' <span class="muted">' + esc(l.city) + '</span>' : ''}
+          <div class="pitch">${esc((l.pitches || [])[0] || '')}</div></td>
+      <td class="muted">${esc(l.niche || '-')}</td>
+      <td>${esc(l.phone || '')}${l.email ? '<br><span class="muted">' + esc(l.email) + '</span>' : ''}</td>
+      <td>${l.heeft_demo ? '<a href="/demo/' + encodeURIComponent(l.demo_path.split('/').slice(-2)[0]) + '/" target="_blank">bekijk</a>' : '<span class="muted">-</span>'}</td>
+      <td class="num">${l.sent_count ? fmt(l.sent_count) + '&times;' : '<span class="muted">-</span>'}</td>
+      <td><button class="btn sec sm" onclick="opendetail(${l.id})">Details</button></td>
+    </tr>`).join('')}</tbody>` : '<tbody><tr><td class="empty">Geen leads gevonden. Draai eerst een cyclus.</td></tr></tbody>';
+}
+
+async function laadWachtrij(){
+  const rows = await get('/api/outreach?status=wacht');
+  document.getElementById('queue').innerHTML = rows.length ? `
+    <thead><tr><th>Bedrijf</th><th>Aan</th><th>Onderwerp</th><th>Gaat weg</th><th></th></tr></thead>
+    <tbody>${rows.map(r => `<tr>
+      <td><strong>${esc(r.lead_name)}</strong></td>
+      <td class="muted">${esc(r.to_addr)}</td>
+      <td>${esc(r.subject)}</td>
+      <td>${tijd(r.send_after)}</td>
+      <td style="white-space:nowrap">
+        <button class="btn sec sm" onclick="bekijkMail(${r.id})">Lezen</button>
+        <button class="btn sec sm" onclick="actie('/api/outreach/${r.id}/now')">Nu sturen</button>
+        <button class="btn sec sm" onclick="actie('/api/outreach/${r.id}/cancel')">Tegenhouden</button>
+      </td></tr>`).join('')}</tbody>`
+    : '<tbody><tr><td class="empty">Niets in de wachtrij.</td></tr></tbody>';
+}
+
+async function laadVerzonden(){
+  const rows = (await get('/api/outreach')).filter(r => ['verstuurd','mislukt','geannuleerd'].includes(r.status));
+  document.getElementById('sent').innerHTML = rows.length ? `
+    <thead><tr><th>Wanneer</th><th>Bedrijf</th><th>Aan</th><th>Onderwerp</th><th>Status</th><th></th></tr></thead>
+    <tbody>${rows.map(r => `<tr>
+      <td>${tijd(r.sent_at || r.created_at)}</td>
+      <td><strong>${esc(r.lead_name)}</strong></td>
+      <td class="muted">${esc(r.to_addr)}</td>
+      <td>${esc(r.subject)}${r.error ? '<div class="pitch">' + esc(r.error) + '</div>' : ''}</td>
+      <td>${badge(STATUS, r.status)}</td>
+      <td><button class="btn sec sm" onclick="bekijkMail(${r.id})">Lezen</button></td>
+    </tr>`).join('')}</tbody>` : '<tbody><tr><td class="empty">Nog niets verstuurd.</td></tr></tbody>';
+}
+
+/* ---------- acties ------------------------------------------------------- */
+async function actie(url){
+  const res = await post(url);
+  if (res.fout) alert(res.fout);
+  await Promise.all([laadOverzicht(), laadWachtrij(), laadVerzonden()]);
+  if (!document.getElementById('view-leads').classList.contains('hidden')) laadLeads();
+}
+
+let mailCache = [];
+async function bekijkMail(id){
+  if (!mailCache.length) mailCache = await get('/api/outreach');
+  const m = mailCache.find(r => r.id === id) || (await get('/api/outreach')).find(r => r.id === id);
+  toonDialoog(m.lead_name, `${m.to_addr} &middot; ${esc(m.subject)}`,
+    `<pre class="mail">${esc(m.body)}</pre>`);
+}
+
+async function opendetail(id){
+  const d = await get('/api/lead/' + id);
+  const demoLink = d.demo_path ? `/demo/${encodeURIComponent(d.demo_path.split('/').slice(-2)[0])}/` : null;
+  toonDialoog(d.name, `${esc(d.niche || '')} &middot; ${esc([d.street, d.housenumber, d.city].filter(Boolean).join(' '))}`, `
+    <dl class="kv">
+      <dt>Score</dt><dd><strong>${fmt(d.score)}</strong> ${badge(SEGMENT, d.segment)}</dd>
+      <dt>Telefoon</dt><dd>${esc(d.phone || '-')}</dd>
+      <dt>E-mail</dt><dd>${esc(d.email || '-')}</dd>
+      <dt>Website</dt><dd>${d.website ? '<a href="' + esc(d.website) + '" target="_blank" rel="noopener">' + esc(d.website) + '</a>' : 'geen'}</dd>
+      <dt>Demo</dt><dd>${demoLink ? '<a href="' + demoLink + '" target="_blank">bekijk de voorbeeldpagina</a>' : 'nog niet gebouwd'}</dd>
+    </dl>
+    <h2>Wat er mis is</h2>
+    <ul>${(d.findings || []).map(f => '<li>' + esc(f.pitch) + ' <span class="muted">(' + f.weight + ' punten)</span>' +
+        (f.detail ? '<div class="pitch">' + esc(f.detail) + '</div>' : '') + '</li>').join('') || '<li class="muted">Niets gevonden.</li>'}</ul>
+    <h2 style="margin-top:18px">Contactgeschiedenis</h2>
+    ${(d.outreach || []).length ? '<table><tbody>' + d.outreach.map(o =>
+        `<tr><td>${tijd(o.sent_at || o.send_after || o.created_at)}</td><td>${badge(STATUS, o.status)}</td>
+         <td>${esc(o.subject)}</td><td><button class="btn sec sm" onclick="bekijkMail(${o.id})">Lezen</button></td></tr>`).join('') + '</tbody></table>'
+      : '<p class="muted">Nog geen contact gehad.</p>'}
+    <div style="margin-top:20px;display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn sec sm" onclick="actie('/api/lead/${d.id}/demo')">Demo (opnieuw) bouwen</button>
+      <button class="btn sec sm" onclick="actie('/api/lead/${d.id}/queue')">Mail klaarzetten</button>
+      <button class="btn sec sm" onclick="actie('/api/lead/${d.id}/suppress')">Niet meer benaderen</button>
+    </div>`);
+}
+
+function toonDialoog(titel, sub, html){
+  document.getElementById('dlg-title').textContent = titel;
+  document.getElementById('dlg-sub').innerHTML = sub;
+  document.getElementById('dlg-body').innerHTML = html;
+  document.getElementById('dlg').showModal();
+}
+
+/* ---------- navigatie & verversen ---------------------------------------- */
+const laders = {overzicht: laadOverzicht, leads: laadLeads, wachtrij: laadWachtrij, verzonden: laadVerzonden};
+
+document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', () => {
+  document.querySelectorAll('.tab').forEach(t => t.setAttribute('aria-selected', String(t === tab)));
+  Object.keys(laders).forEach(v =>
+    document.getElementById('view-' + v).classList.toggle('hidden', v !== tab.dataset.view));
+  laders[tab.dataset.view]();
+}));
+
+document.getElementById('run-btn').addEventListener('click', async () => {
+  document.getElementById('run-btn').disabled = true;
+  await post('/api/run');
+  volgLog();
+});
+document.getElementById('send-due').addEventListener('click', () => actie('/api/send-now'));
+['q','segment','niche'].forEach(id => document.getElementById(id).addEventListener('input', laadLeads));
+
+async function volgLog(){
+  const s = await get('/api/run/status');
+  document.getElementById('log').textContent = s.log.join('\n') || 'Bezig...';
+  document.getElementById('run-btn').disabled = s.running;
+  document.getElementById('run-btn').textContent = s.running ? 'Bezig...' : 'Nu draaien';
+  if (s.running) setTimeout(volgLog, 1200);
+  else { mailCache = []; laadOverzicht(); }
+}
+
+addEventListener('resize', () => {
+  if (overzichtData) barChart(document.getElementById('chart-sent'), overzichtData.sent_per_day);
+});
+
+laadOverzicht();
+setInterval(() => { if (!document.getElementById('view-overzicht').classList.contains('hidden')) laadOverzicht(); }, 30000);
+</script>
+</body>
+</html>

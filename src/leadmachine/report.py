@@ -79,10 +79,13 @@ def stats(conn: sqlite3.Connection) -> dict[str, Any]:
         "with_phone": one("SELECT COUNT(*) FROM leads WHERE phone IS NOT NULL AND phone != ''"),
         "no_website": one("SELECT COUNT(*) FROM leads WHERE website IS NULL OR website = ''"),
         "demos": one("SELECT COUNT(*) FROM demos"),
-        "drafted": one("SELECT COUNT(*) FROM outreach_log WHERE status = 'drafted'"),
-        "sent": one("SELECT COUNT(*) FROM outreach_log WHERE status = 'sent'"),
+        "drafted": one("SELECT COUNT(*) FROM outreach_log WHERE status = 'concept'"),
+        "queued": one("SELECT COUNT(*) FROM outreach_log WHERE status = 'wacht'"),
+        "sent": one("SELECT COUNT(*) FROM outreach_log WHERE status = 'verstuurd'"),
+        "failed": one("SELECT COUNT(*) FROM outreach_log WHERE status = 'mislukt'"),
         "sent_today": one(
-            "SELECT COUNT(*) FROM outreach_log WHERE status = 'sent' AND date(created_at) = date('now')"
+            "SELECT COUNT(*) FROM outreach_log WHERE status = 'verstuurd' "
+            "AND date(COALESCE(sent_at, created_at)) = date('now')"
         ),
         "per_segment": per_segment,
         "per_niche": per_niche,

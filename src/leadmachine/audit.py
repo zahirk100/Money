@@ -34,9 +34,13 @@ EMAIL_IN_PAGE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.]{2,}")
 PHONE_IN_PAGE = re.compile(r"(?:\+31|0)\s?\d[\d\s\-]{7,}")
 
 
-def _finding(code: str, weight: int, pitch: str) -> dict[str, Any]:
-    """pitch = de zin die je richting de ondernemer gebruikt."""
-    return {"code": code, "weight": weight, "pitch": pitch}
+def _finding(code: str, weight: int, pitch: str, detail: str | None = None) -> dict[str, Any]:
+    """pitch = de zin die je richting de ondernemer gebruikt.
+    detail = de technische toelichting, alleen voor jezelf en het dashboard."""
+    finding = {"code": code, "weight": weight, "pitch": pitch}
+    if detail:
+        finding["detail"] = detail
+    return finding
 
 
 def audit_lead(
@@ -99,8 +103,9 @@ def audit_lead(
     if not fetched.ok:
         findings.append(_finding(
             "site_onbereikbaar", 45,
-            "de website die online staat is op dit moment niet te openen "
-            f"({fetched.error or fetched.status_code}) - bezoekers haken direct af."))
+            "de website die online staat is op dit moment niet te openen; "
+            "bezoekers die erop klikken, haken direct af.",
+            detail=f"fout bij het ophalen: {fetched.error or fetched.status_code}"))
         result["findings"] = findings
         result["score"] = _total(findings)
         return result

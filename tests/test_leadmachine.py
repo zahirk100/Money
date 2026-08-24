@@ -166,7 +166,7 @@ class TestOutreach(unittest.TestCase):
     def test_cooldown_blocks_second_mail(self):
         ok, _ = eligible(self.conn, self._row(), campaign())
         self.assertTrue(ok)
-        database.log_outreach(self.conn, self.lead_id, status="sent", to_addr="x@y.nl")
+        database.log_outreach(self.conn, self.lead_id, status="verstuurd", to_addr="x@y.nl")
         ok, reason = eligible(self.conn, self._row(), campaign())
         self.assertFalse(ok)
         self.assertIn("cooldown", reason)

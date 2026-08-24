@@ -74,7 +74,29 @@ CREATE TABLE IF NOT EXISTS outreach_log (
     body       TEXT,
     status     TEXT NOT NULL,
     error      TEXT,
+    send_after TEXT,
+    sent_at    TEXT,
     created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS runs (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    started_at  TEXT DEFAULT (datetime('now')),
+    finished_at TEXT,
+    trigger     TEXT,
+    status      TEXT DEFAULT 'bezig',
+    discovered  INTEGER DEFAULT 0,
+    audited     INTEGER DEFAULT 0,
+    demos       INTEGER DEFAULT 0,
+    queued      INTEGER DEFAULT 0,
+    sent        INTEGER DEFAULT 0,
+    failed      INTEGER DEFAULT 0,
+    error       TEXT
+);
+
+CREATE TABLE IF NOT EXISTS meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT
 );
 
 CREATE TABLE IF NOT EXISTS suppression (
@@ -83,9 +105,30 @@ CREATE TABLE IF NOT EXISTS suppression (
     added_at   TEXT DEFAULT (datetime('now'))
 );
 
+"""
+
+INDEXES = """
 CREATE INDEX IF NOT EXISTS idx_audits_score ON audits(score DESC);
 CREATE INDEX IF NOT EXISTS idx_outreach_lead ON outreach_log(lead_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_outreach_status ON outreach_log(status, send_after);
 """
+
+# Kolommen die later zijn toegevoegd. Bestaande databases krijgen ze alsnog,
+# want CREATE TABLE IF NOT EXISTS raakt een bestaande tabel niet aan.
+MIGRATIONS = {
+    "outreach_log": {
+        "send_after": "TEXT",
+        "sent_at": "TEXT",
+    },
+}
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    for table, columns in MIGRATIONS.items():
+        existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+        for column, ddl in columns.items():
+            if column not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
 
 
 def connect(path: str | Path | None = None) -> sqlite3.Connection:
@@ -95,6 +138,8 @@ def connect(path: str | Path | None = None) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(SCHEMA)
+    _migrate(conn)
+    conn.executescript(INDEXES)
     return conn
 
 
@@ -182,7 +227,7 @@ def ranked_leads(
         "SELECT l.*, a.score, a.segment, a.findings, a.final_url, a.reachable,",
         "       d.path AS demo_path, d.url AS demo_url,",
         "       (SELECT COUNT(*) FROM outreach_log o",
-        "         WHERE o.lead_id = l.id AND o.status = 'sent') AS sent_count",
+        "         WHERE o.lead_id = l.id AND o.status = 'verstuurd') AS sent_count",
         "FROM leads l",
         "JOIN audits a ON a.lead_id = l.id",
         "LEFT JOIN demos d ON d.lead_id = l.id",
@@ -233,8 +278,8 @@ def log_outreach(conn: sqlite3.Connection, lead_id: int, **kwargs: Any) -> None:
 
 def last_contact(conn: sqlite3.Connection, lead_id: int) -> str | None:
     row = conn.execute(
-        "SELECT MAX(created_at) AS last FROM outreach_log "
-        "WHERE lead_id = ? AND status = 'sent'",
+        "SELECT MAX(COALESCE(sent_at, created_at)) AS last FROM outreach_log "
+        "WHERE lead_id = ? AND status = 'verstuurd'",
         (lead_id,),
     ).fetchone()
     return row["last"] if row else None
@@ -243,7 +288,7 @@ def last_contact(conn: sqlite3.Connection, lead_id: int) -> str | None:
 def sent_today(conn: sqlite3.Connection) -> int:
     row = conn.execute(
         "SELECT COUNT(*) AS n FROM outreach_log "
-        "WHERE status = 'sent' AND date(created_at) = date('now')"
+        "WHERE status = 'verstuurd' AND date(COALESCE(sent_at, created_at)) = date('now')"
     ).fetchone()
     return int(row["n"])
 
@@ -263,4 +308,98 @@ def suppress(conn: sqlite3.Connection, value: str, reason: str = "handmatig") ->
     conn.execute(
         "INSERT OR REPLACE INTO suppression (value, reason) VALUES (?, ?)",
         (value.lower().strip(), reason),
+    )
+
+
+def start_run(conn: sqlite3.Connection, trigger: str) -> int:
+    cur = conn.execute("INSERT INTO runs (trigger) VALUES (?)", (trigger,))
+    conn.commit()
+    return int(cur.lastrowid)
+
+
+def finish_run(
+    conn: sqlite3.Connection, run_id: int, counters: dict[str, int],
+    status: str = "klaar", error: str | None = None,
+) -> None:
+    conn.execute(
+        "UPDATE runs SET finished_at = datetime('now'), status = ?, error = ?, "
+        "discovered = ?, audited = ?, demos = ?, queued = ?, sent = ?, failed = ? "
+        "WHERE id = ?",
+        (
+            status, error,
+            counters.get("discovered", 0), counters.get("audited", 0),
+            counters.get("demos", 0), counters.get("queued", 0),
+            counters.get("sent", 0), counters.get("failed", 0), run_id,
+        ),
+    )
+    conn.commit()
+
+
+def recent_runs(conn: sqlite3.Connection, limit: int = 15) -> list[sqlite3.Row]:
+    return conn.execute(
+        "SELECT * FROM runs ORDER BY id DESC LIMIT ?", (limit,)
+    ).fetchall()
+
+
+def queue_outreach(
+    conn: sqlite3.Connection, lead_id: int, message: dict[str, str],
+    template: str, send_after: str,
+) -> int:
+    cur = conn.execute(
+        "INSERT INTO outreach_log (lead_id, channel, template, to_addr, subject, body, "
+        "status, send_after) VALUES (?, 'email', ?, ?, ?, ?, 'wacht', ?)",
+        (lead_id, template, message["to"], message["subject"], message["body"], send_after),
+    )
+    return int(cur.lastrowid)
+
+
+def due_outreach(conn: sqlite3.Connection, limit: int) -> list[sqlite3.Row]:
+    """Wachtrij-items waarvan de wachttijd voorbij is."""
+    return conn.execute(
+        "SELECT o.*, l.name AS lead_name FROM outreach_log o "
+        "JOIN leads l ON l.id = o.lead_id "
+        "WHERE o.status = 'wacht' AND (o.send_after IS NULL OR o.send_after <= datetime('now')) "
+        "ORDER BY o.id LIMIT ?",
+        (limit,),
+    ).fetchall()
+
+
+def pending_outreach(conn: sqlite3.Connection, limit: int = 100) -> list[sqlite3.Row]:
+    return conn.execute(
+        "SELECT o.*, l.name AS lead_name FROM outreach_log o "
+        "JOIN leads l ON l.id = o.lead_id "
+        "WHERE o.status = 'wacht' ORDER BY o.send_after, o.id LIMIT ?",
+        (limit,),
+    ).fetchall()
+
+
+def mark_outreach(
+    conn: sqlite3.Connection, outreach_id: int, status: str, error: str | None = None
+) -> None:
+    conn.execute(
+        "UPDATE outreach_log SET status = ?, error = ?, "
+        "sent_at = CASE WHEN ? = 'verstuurd' THEN datetime('now') ELSE sent_at END "
+        "WHERE id = ?",
+        (status, error, status, outreach_id),
+    )
+
+
+def already_queued(conn: sqlite3.Connection, lead_id: int) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM outreach_log WHERE lead_id = ? AND status IN ('wacht', 'verstuurd')",
+        (lead_id,),
+    ).fetchone()
+    return row is not None
+
+
+def get_meta(conn: sqlite3.Connection, key: str) -> str | None:
+    row = conn.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
+    return row["value"] if row else None
+
+
+def set_meta(conn: sqlite3.Connection, key: str, value: str) -> None:
+    conn.execute(
+        "INSERT INTO meta (key, value) VALUES (?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (key, value),
     )
