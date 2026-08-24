@@ -137,7 +137,29 @@ def _intro(name: str, niche_label: str, city: str | None) -> str:
     )
 
 
+def demo_slug(lead: Any) -> str:
+    get = lead.get if isinstance(lead, dict) else (lambda k, d=None: lead[k] if k in lead.keys() else d)
+    return slugify(f"{get('name')}-{get('osm_id') or get('id') or ''}")
+
+
+def build_demo(lead: Any, campaign: Any) -> tuple[str, str]:
+    """Bouwt de pagina en geeft (slug, html) terug, zonder iets weg te schrijven.
+    Live draait alles zonder schijf, dus het schrijven is een aparte stap."""
+    return demo_slug(lead), _render(lead, campaign)
+
+
 def render_demo(lead: Any, campaign: Any, out_dir: Path | None = None) -> Path:
+    """Bouwt de pagina en zet hem als bestand neer (lokaal gebruik)."""
+    slug, html = build_demo(lead, campaign)
+    base = Path(out_dir) if out_dir else OUT_DIR / "demos"
+    target = base / slug
+    target.mkdir(parents=True, exist_ok=True)
+    page = target / "index.html"
+    page.write_text(html, encoding="utf-8")
+    return page
+
+
+def _render(lead: Any, campaign: Any) -> str:
     get = lead.get if isinstance(lead, dict) else (lambda k, d=None: lead[k] if k in lead.keys() else d)
     name = get("name")
     niche = get("niche") or ""
@@ -164,7 +186,7 @@ def render_demo(lead: Any, campaign: Any, out_dir: Path | None = None) -> Path:
     )
     phone = get("phone") or ""
 
-    html = template.render(
+    return template.render(
         lead={
             "name": name, "city": city, "postcode": get("postcode"),
             "phone": phone, "email": get("email"),
@@ -186,9 +208,4 @@ def render_demo(lead: Any, campaign: Any, out_dir: Path | None = None) -> Path:
         year=date.today().year,
     )
 
-    base = Path(out_dir) if out_dir else OUT_DIR / "demos"
-    target = base / slugify(f"{name}-{get('osm_id') or ''}")
-    target.mkdir(parents=True, exist_ok=True)
-    page = target / "index.html"
-    page.write_text(html, encoding="utf-8")
-    return page
+    return html

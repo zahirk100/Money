@@ -119,9 +119,9 @@ class TestDemo(unittest.TestCase):
 class TestOutreach(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.conn = database.connect(Path(self.tmp.name) / "test.db")
+        self.store = database.connect(Path(self.tmp.name) / "test.db")
         self.lead_id, _ = database.upsert_lead(
-            self.conn,
+            self.store,
             {
                 "osm_type": "node", "osm_id": "1", "name": "Kapsalon De Schaar",
                 "niche": "kapper", "city": "Zwolle", "email": "info@voorbeeld.example.com",
@@ -129,17 +129,17 @@ class TestOutreach(unittest.TestCase):
             },
         )
         database.save_audit(
-            self.conn, self.lead_id,
+            self.store, self.lead_id,
             audit_lead({"name": "Kapsalon De Schaar", "website": None}, offline=True)
             | {"segment": "hot"},
         )
 
     def tearDown(self):
-        self.conn.close()
+        self.store.close()
         self.tmp.cleanup()
 
     def _row(self):
-        return database.ranked_leads(self.conn)[0]
+        return database.ranked_leads(self.store)[0]
 
     def test_draft_contains_offer_optout_and_sender(self):
         message = draft_email(self._row(), campaign(), demo_url="https://demo.example.com/x/")
@@ -153,31 +153,31 @@ class TestOutreach(unittest.TestCase):
         self.assertEqual(body.count("er is online geen eigen website te vinden"), 1)
 
     def test_suppressed_lead_is_skipped(self):
-        database.suppress(self.conn, "info@voorbeeld.example.com")
-        ok, reason = eligible(self.conn, self._row(), campaign())
+        database.suppress(self.store, "info@voorbeeld.example.com")
+        ok, reason = eligible(self.store, self._row(), campaign())
         self.assertFalse(ok)
         self.assertIn("afmeldlijst", reason)
 
     def test_domain_level_suppression(self):
-        database.suppress(self.conn, "voorbeeld.example.com")
-        ok, _ = eligible(self.conn, self._row(), campaign())
+        database.suppress(self.store, "voorbeeld.example.com")
+        ok, _ = eligible(self.store, self._row(), campaign())
         self.assertFalse(ok)
 
     def test_cooldown_blocks_second_mail(self):
-        ok, _ = eligible(self.conn, self._row(), campaign())
+        ok, _ = eligible(self.store, self._row(), campaign())
         self.assertTrue(ok)
-        database.log_outreach(self.conn, self.lead_id, status="verstuurd", to_addr="x@y.nl")
-        ok, reason = eligible(self.conn, self._row(), campaign())
+        database.log_outreach(self.store, self.lead_id, status="verstuurd", to_addr="x@y.nl")
+        ok, reason = eligible(self.store, self._row(), campaign())
         self.assertFalse(ok)
         self.assertIn("cooldown", reason)
 
     def test_lead_without_email_is_not_eligible(self):
         database.upsert_lead(
-            self.conn,
+            self.store,
             {"osm_type": "node", "osm_id": "2", "name": "Zonder Mail", "niche": "kapper"},
         )
-        row = [r for r in self.conn.execute("SELECT * FROM leads WHERE osm_id = '2'")][0]
-        ok, reason = eligible(self.conn, row, campaign())
+        row = self.store.one("SELECT * FROM leads WHERE osm_id = '2'")
+        ok, reason = eligible(self.store, row, campaign())
         self.assertFalse(ok)
         self.assertIn("mailadres", reason)
 
@@ -191,30 +191,30 @@ class TestOutreach(unittest.TestCase):
 class TestDatabase(unittest.TestCase):
     def test_upsert_is_idempotent(self):
         with tempfile.TemporaryDirectory() as tmp:
-            conn = database.connect(Path(tmp) / "t.db")
+            store = database.connect(Path(tmp) / "t.db")
             lead = {"osm_type": "node", "osm_id": "7", "name": "X", "niche": "kapper"}
-            first, new1 = database.upsert_lead(conn, lead)
-            second, new2 = database.upsert_lead(conn, {**lead, "name": "X BV"})
+            first, new1 = database.upsert_lead(store, lead)
+            second, new2 = database.upsert_lead(store, {**lead, "name": "X BV"})
             self.assertEqual(first, second)
             self.assertTrue(new1)
             self.assertFalse(new2)
-            row = conn.execute("SELECT name FROM leads WHERE id = ?", (first,)).fetchone()
+            row = store.one("SELECT name FROM leads WHERE id = ?", (first,))
             self.assertEqual(row["name"], "X BV")
-            conn.close()
+            store.close()
 
     def test_audit_upsert_keeps_one_row_per_lead(self):
         with tempfile.TemporaryDirectory() as tmp:
-            conn = database.connect(Path(tmp) / "t.db")
+            store = database.connect(Path(tmp) / "t.db")
             lead_id, _ = database.upsert_lead(
-                conn, {"osm_type": "node", "osm_id": "8", "name": "Y", "niche": "kapper"}
+                store, {"osm_type": "node", "osm_id": "8", "name": "Y", "niche": "kapper"}
             )
-            database.save_audit(conn, lead_id, {"score": 10, "segment": "cold", "findings": []})
-            database.save_audit(conn, lead_id, {"score": 55, "segment": "hot", "findings": [{"code": "x"}]})
-            rows = conn.execute("SELECT * FROM audits WHERE lead_id = ?", (lead_id,)).fetchall()
+            database.save_audit(store, lead_id, {"score": 10, "segment": "cold", "findings": []})
+            database.save_audit(store, lead_id, {"score": 55, "segment": "hot", "findings": [{"code": "x"}]})
+            rows = store.execute("SELECT * FROM audits WHERE lead_id = ?", (lead_id,))
             self.assertEqual(len(rows), 1)
             self.assertEqual(rows[0]["score"], 55)
             self.assertEqual(json.loads(rows[0]["findings"])[0]["code"], "x")
-            conn.close()
+            store.close()
 
 
 if __name__ == "__main__":

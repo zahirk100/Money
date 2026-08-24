@@ -14,7 +14,6 @@ import json
 import os
 import re
 import smtplib
-import sqlite3
 import ssl
 import textwrap
 import time
@@ -23,6 +22,7 @@ from email.message import EmailMessage
 from pathlib import Path
 from typing import Any
 
+import requests
 from jinja2 import Environment, FileSystemLoader
 
 from .audit import top_pitches
@@ -84,7 +84,7 @@ def wrap_paragraphs(text: str, width: int = 72) -> str:
 
 
 def draft_email(
-    lead: sqlite3.Row | dict[str, Any],
+    lead: dict[str, Any],
     campaign: Campaign,
     template: str = "first",
     demo_url: str | None = None,
@@ -129,7 +129,7 @@ def draft_email(
     }
 
 
-def load_suppression_file(conn: sqlite3.Connection, campaign: Campaign) -> int:
+def load_suppression_file(store: Any, campaign: Campaign) -> int:
     """Regels uit het afmeldbestand (een adres of domein per regel) in de db."""
     from .db import suppress
 
@@ -145,32 +145,29 @@ def load_suppression_file(conn: sqlite3.Connection, campaign: Campaign) -> int:
     for line in file.read_text(encoding="utf-8").splitlines():
         value = line.strip().lower()
         if value and not value.startswith("#"):
-            suppress(conn, value, "afmeldbestand")
+            suppress(store, value, "afmeldbestand")
             count += 1
     return count
 
 
-def eligible(conn: sqlite3.Connection, lead: sqlite3.Row, campaign: Campaign) -> tuple[bool, str]:
+def eligible(store: Any, lead: dict[str, Any], campaign: Campaign) -> tuple[bool, str]:
     from .db import is_suppressed, last_contact
+    from .store import now
 
-    email = (lead["email"] if "email" in lead.keys() else "") or ""
+    email = (lead.get("email") or "") if isinstance(lead, dict) else (lead["email"] or "")
     if not email or "@" not in email:
         return False, "geen mailadres bekend"
-    if is_suppressed(conn, email):
+    if is_suppressed(store, email):
         return False, "staat op de afmeldlijst"
-    previous = last_contact(conn, lead["id"])
+    previous = last_contact(store, lead["id"])
     if previous:
         cooldown = int(campaign.outreach.get("cooldown_days", 90))
-        try:
-            last_dt = datetime.fromisoformat(previous)
-        except ValueError:
-            return False, "eerder benaderd"
-        if datetime.utcnow() - last_dt < timedelta(days=cooldown):
-            return False, f"al benaderd op {last_dt:%d-%m-%Y} (cooldown {cooldown} dagen)"
+        if now() - previous < timedelta(days=cooldown):
+            return False, f"al benaderd op {previous:%d-%m-%Y} (cooldown {cooldown} dagen)"
     return True, ""
 
 
-def write_draft(lead: sqlite3.Row, message: dict[str, str]) -> Path:
+def write_draft(lead: dict[str, Any], message: dict[str, str]) -> Path:
     DRAFT_DIR.mkdir(parents=True, exist_ok=True)
     safe = re.sub(r"[^\w-]+", "-", (lead["name"] or "lead").lower()).strip("-")
     path = DRAFT_DIR / f"{date.today():%Y%m%d}-{lead['id']:05d}-{safe}.txt"
@@ -183,11 +180,17 @@ def write_draft(lead: sqlite3.Row, message: dict[str, str]) -> Path:
 
 
 class Mailer:
-    """Dunne SMTP-wrapper. Verstuurt alleen als hij expliciet is aangezet."""
+    """Verstuurt via Resend (HTTP) als er een sleutel is, anders via SMTP.
+
+    Vanuit een serverless omgeving is SMTP een slecht idee: uitgaande poort 25
+    en 587 zijn er vaak dicht en een verbinding opzetten kost meer tijd dan de
+    functie mag draaien. Een HTTP-API heeft dat probleem niet.
+    """
 
     def __init__(self, campaign: Campaign, live: bool = False) -> None:
         self.campaign = campaign
         self.live = live
+        self.resend_key = os.environ.get("RESEND_API_KEY", "")
         self.host = os.environ.get("SMTP_HOST", "")
         self.port = int(os.environ.get("SMTP_PORT", "587"))
         self.user = os.environ.get("SMTP_USER", "")
@@ -195,8 +198,12 @@ class Mailer:
         self.starttls = os.environ.get("SMTP_STARTTLS", "true").lower() != "false"
         self._smtp: smtplib.SMTP | None = None
 
+    @property
+    def provider(self) -> str:
+        return "resend" if self.resend_key else "smtp"
+
     def __enter__(self) -> "Mailer":
-        if self.live:
+        if self.live and self.provider == "smtp":
             if not (self.host and self.user and self.password):
                 raise OutreachError(
                     "SMTP_HOST, SMTP_USER en SMTP_PASSWORD ontbreken. "
@@ -218,6 +225,33 @@ class Mailer:
                 pass
 
     def send(self, to_addr: str, subject: str, body: str) -> None:
+        if not self.live:
+            raise OutreachError("Mailer staat niet live; gebruik --confirm.")
+        if self.provider == "resend":
+            self._send_resend(to_addr, subject, body)
+        else:
+            self._send_smtp(to_addr, subject, body)
+
+    def _send_resend(self, to_addr: str, subject: str, body: str) -> None:
+        out = self.campaign.outreach
+        payload = {
+            "from": f"{out['sender_name']} <{out['sender_email']}>",
+            "to": [to_addr],
+            "subject": subject,
+            "text": body,
+        }
+        if out.get("reply_to"):
+            payload["reply_to"] = str(out["reply_to"])
+        response = requests.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {self.resend_key}"},
+            json=payload,
+            timeout=20,
+        )
+        if response.status_code >= 300:
+            raise OutreachError(f"Resend weigerde de mail ({response.status_code}): {response.text[:300]}")
+
+    def _send_smtp(self, to_addr: str, subject: str, body: str) -> None:
         out = self.campaign.outreach
         message = EmailMessage()
         message["From"] = f"{out['sender_name']} <{out['sender_email']}>"
@@ -226,8 +260,8 @@ class Mailer:
         if out.get("reply_to"):
             message["Reply-To"] = str(out["reply_to"])
         message.set_content(body)
-        if not self.live or self._smtp is None:
-            raise OutreachError("Mailer staat niet live; gebruik --confirm.")
+        if self._smtp is None:
+            raise OutreachError("Geen SMTP-verbinding open.")
         self._smtp.send_message(message)
 
 

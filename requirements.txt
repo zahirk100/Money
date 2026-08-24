@@ -2,3 +2,5 @@ requests>=2.31
 beautifulsoup4>=4.12
 Jinja2>=3.1
 PyYAML>=6.0
+# Alleen nodig als je Postgres/Supabase gebruikt in plaats van een lokaal bestand.
+psycopg[binary]>=3.1

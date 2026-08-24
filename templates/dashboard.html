@@ -296,8 +296,10 @@ async function laadOverzicht(){
   document.getElementById('ap-line').innerHTML = ap.enabled
     ? `Autopilot staat <strong>aan</strong> voor ${esc(ap.area)} &middot; draait dagelijks om ${esc(ap.run_at)} &middot;
        maximaal ${ap.mails_per_run} mails per keer, ${ap.daily_limit} per dag &middot;
-       versturen: ${ap.send_mode === 'auto' ? 'direct' : ap.review_hours + ' uur wachttijd'}`
-    : `Autopilot staat <strong>uit</strong> &middot; zet <code>autopilot.enabled: true</code> in je campagne-config om automatisch te draaien.`;
+       versturen: ${ap.send_mode === 'auto' ? 'direct' : ap.review_hours + ' uur wachttijd'} &middot;
+       opslag: ${esc(ap.opslag === 'postgres' ? 'Supabase' : 'lokaal bestand')}`
+    : `Autopilot staat <strong>uit</strong> voor ${esc(ap.area)} &middot; opslag: ${esc(ap.opslag === 'postgres' ? 'Supabase' : 'lokaal bestand')} &middot;
+       zet <code>LM_ENABLED=true</code> (live) of <code>autopilot.enabled: true</code> in je campagne-config om te laten versturen.`;
 
   document.getElementById('tiles').innerHTML = [
     ['Bedrijven gevonden', fmt(s.leads),      `${fmt(s.no_website)} zonder website`],

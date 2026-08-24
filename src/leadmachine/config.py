@@ -69,8 +69,35 @@ class Campaign:
         return {k: str(self.outreach[k]) for k in self.outreach if isinstance(self.outreach[k], (str, int))}
 
 
+# Velden die je live via omgevingsvariabelen kunt zetten, zodat je ze in het
+# Vercel-scherm kunt aanpassen zonder opnieuw uit te rollen.
+ENV_OUTREACH = {
+    "sender_name": "LM_SENDER_NAME",
+    "sender_email": "LM_SENDER_EMAIL",
+    "company_name": "LM_COMPANY_NAME",
+    "company_address": "LM_COMPANY_ADDRESS",
+    "kvk": "LM_KVK",
+    "phone": "LM_PHONE",
+    "reply_to": "LM_REPLY_TO",
+    "daily_limit": "LM_DAILY_LIMIT",
+}
+
+
+def resolve_config_path(path: str | Path | None = None) -> Path:
+    if path:
+        return Path(path)
+    from_env = os.environ.get("CAMPAIGN_CONFIG")
+    if from_env:
+        return Path(from_env)
+    if DEFAULT_CONFIG.exists():
+        return DEFAULT_CONFIG
+    # Live draait er vaak geen eigen campaign.yaml mee; dan is het voorbeeld het
+    # uitgangspunt en komen de afzendergegevens uit de omgeving.
+    return DEFAULT_CONFIG.with_name("campaign.example.yaml")
+
+
 def load_campaign(path: str | Path | None = None) -> Campaign:
-    cfg_path = Path(path) if path else DEFAULT_CONFIG
+    cfg_path = resolve_config_path(path)
     if not cfg_path.exists():
         example = cfg_path.with_name("campaign.example.yaml")
         hint = f"\nKopieer {example} naar {cfg_path} en pas hem aan." if example.exists() else ""
@@ -93,13 +120,19 @@ def load_campaign(path: str | Path | None = None) -> Campaign:
     if not niches:
         raise ConfigError("Geen niches gedefinieerd in de config.")
 
+    outreach = dict(raw.get("outreach") or {})
+    for field, env_key in ENV_OUTREACH.items():
+        value = os.environ.get(env_key)
+        if value not in (None, ""):
+            outreach[field] = int(value) if field == "daily_limit" else value
+
     return Campaign(
-        area=str(region["area"]),
+        area=str(os.environ.get("LM_AREA") or region["area"]),
         admin_level=int(region.get("admin_level", 8)),
         niches=niches,
         audit=raw.get("audit") or {},
         scoring=raw.get("scoring") or {},
-        outreach=raw.get("outreach") or {},
+        outreach=outreach,
         offer=raw.get("offer") or {},
         path=cfg_path,
         _raw=raw,

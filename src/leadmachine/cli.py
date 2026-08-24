@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import time
 from datetime import datetime, time as dt_time, timedelta
@@ -20,8 +21,9 @@ from pathlib import Path
 from . import db as database
 from . import report
 from .audit import audit_lead, top_pitches
-from .config import DEFAULT_DB, OUT_DIR, Campaign, ConfigError, load_campaign, load_dotenv
-from .demo import render_demo
+from .config import OUT_DIR, Campaign, ConfigError, load_campaign, load_dotenv
+from .store import resolve_target
+from .demo import build_demo, render_demo
 from .http import PoliteClient
 from .dashboard import serve
 from .pipeline import autopilot_settings, run_cycle, send_due
@@ -53,12 +55,18 @@ def _client(campaign: Campaign) -> PoliteClient:
 
 
 def cmd_init(args: argparse.Namespace) -> int:
-    with database.session(args.db):
-        pass
+    load_dotenv()
+    with database.session(args.db) as store:
+        soort = "Supabase/Postgres" if store.dialect == "postgres" else "SQLite"
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    print(f"{GREEN}Database klaar:{RESET} {args.db}")
+    print(f"{GREEN}Database klaar ({soort}):{RESET} {_masked(resolve_target(args.db))}")
     print(f"{GREEN}Uitvoermap klaar:{RESET} {OUT_DIR}")
     return 0
+
+
+def _masked(target: str) -> str:
+    """Een databank-URL bevat een wachtwoord; dat hoeft niet in beeld."""
+    return re.sub(r"://[^@/]*@", "://***@", target)
 
 
 def cmd_discover(args: argparse.Namespace) -> int:
@@ -66,11 +74,11 @@ def cmd_discover(args: argparse.Namespace) -> int:
 
     campaign = load_campaign(args.config)
     added = updated = 0
-    with database.session(args.db) as conn:
+    with database.session(args.db) as store:
         for index, lead in enumerate(discover(campaign, source=args.source, only_niche=args.niche)):
             if args.limit and index >= args.limit:
                 break
-            _, is_new = database.upsert_lead(conn, lead)
+            _, is_new = database.upsert_lead(store, lead)
             added += int(is_new)
             updated += int(not is_new)
     print(f"{GREEN}{added} nieuwe leads{RESET}, {updated} bijgewerkt in {campaign.area}.")
@@ -82,11 +90,11 @@ def cmd_discover(args: argparse.Namespace) -> int:
 def cmd_audit(args: argparse.Namespace) -> int:
     campaign = load_campaign(args.config)
     client = None if args.offline else _client(campaign)
-    with database.session(args.db) as conn:
+    with database.session(args.db) as store:
         rows = (
-            conn.execute("SELECT * FROM leads ORDER BY id").fetchall()
+            store.execute("SELECT * FROM leads ORDER BY id")
             if args.refresh
-            else database.leads_without_audit(conn, args.limit)
+            else database.leads_without_audit(store, args.limit)
         )
         if args.refresh and args.limit:
             rows = rows[: args.limit]
@@ -96,7 +104,7 @@ def cmd_audit(args: argparse.Namespace) -> int:
         for row in rows:
             result = audit_lead(row, client=client, offline=args.offline)
             result["segment"] = campaign.segment(result["score"])
-            database.save_audit(conn, row["id"], result)
+            database.save_audit(store, row["id"], result)
             colour = _color(result["segment"])
             print(f"{colour}{result['score']:>3}{RESET}  {row['name'][:44]:<44} {result['segment']}")
     print(f"\n{GREEN}{len(rows)} bedrijven beoordeeld.{RESET}")
@@ -108,12 +116,13 @@ def cmd_demo(args: argparse.Namespace) -> int:
     campaign.require_sender()
     load_dotenv()
     base_url = os.environ.get("DEMO_BASE_URL", "").rstrip("/")
-    with database.session(args.db) as conn:
-        rows = database.ranked_leads(conn, limit=args.top, segment=args.segment, niche=args.niche)
+    with database.session(args.db) as store:
+        rows = database.ranked_leads(store, limit=args.top, segment=args.segment, niche=args.niche)
         for row in rows:
+            slug, html = build_demo(row, campaign)
             path = render_demo(row, campaign)
-            url = f"{base_url}/{path.parent.name}/" if base_url else None
-            database.record_demo(conn, row["id"], str(path), url)
+            url = f"{base_url}/demo/{slug}" if base_url else None
+            database.record_demo(store, row["id"], slug, path=str(path), url=url, html=html)
             print(f"{GREEN}gemaakt{RESET}  {row['name'][:40]:<40} {path}")
     print(f"\n{len(rows)} demo's in {OUT_DIR / 'demos'}")
     if not base_url:
@@ -126,27 +135,28 @@ def cmd_draft(args: argparse.Namespace) -> int:
     campaign = load_campaign(args.config)
     campaign.require_sender()
     base_url = os.environ.get("DEMO_BASE_URL", "").rstrip("/")
-    with database.session(args.db) as conn:
-        load_suppression_file(conn, campaign)
+    with database.session(args.db) as store:
+        load_suppression_file(store, campaign)
         rows = database.ranked_leads(
-            conn, limit=args.top, segment=args.segment, niche=args.niche, with_email=True
+            store, limit=args.top, segment=args.segment, niche=args.niche, with_email=True
         )
         made = 0
         for row in rows:
-            ok, reason = eligible(conn, row, campaign)
+            ok, reason = eligible(store, row, campaign)
             if not ok:
                 print(f"{DIM}overslaan {row['name'][:36]:<36} {reason}{RESET}")
                 continue
-            demo_url = row["demo_url"]
-            if not row["demo_path"]:
+            demo_url = row.get("demo_url")
+            if not row.get("demo_slug"):
                 # Zonder demo is de mail waardeloos, dus maak hem alsnog.
+                slug, html = build_demo(row, campaign)
                 demo_path = render_demo(row, campaign)
-                demo_url = f"{base_url}/{demo_path.parent.name}/" if base_url else None
-                database.record_demo(conn, row["id"], str(demo_path), demo_url)
+                demo_url = f"{base_url}/demo/{slug}" if base_url else None
+                database.record_demo(store, row["id"], slug, path=str(demo_path), url=demo_url, html=html)
             message = draft_email(row, campaign, template=args.template, demo_url=demo_url)
             path = write_draft(row, message)
             database.log_outreach(
-                conn, row["id"], channel="email", template=args.template,
+                store, row["id"], channel="email", template=args.template,
                 to_addr=message["to"], subject=message["subject"],
                 body=message["body"], status="concept",
             )
@@ -162,9 +172,9 @@ def cmd_send(args: argparse.Namespace) -> int:
     campaign.require_sender()
     daily_limit = int(campaign.outreach.get("daily_limit", 25))
 
-    with database.session(args.db) as conn:
-        load_suppression_file(conn, campaign)
-        already = database.sent_today(conn)
+    with database.session(args.db) as store:
+        load_suppression_file(store, campaign)
+        already = database.sent_today(store)
         room = max(0, daily_limit - already)
         budget = min(room, args.limit) if args.limit else room
         if budget <= 0:
@@ -172,11 +182,11 @@ def cmd_send(args: argparse.Namespace) -> int:
             return 0
 
         rows = database.ranked_leads(
-            conn, limit=budget * 3, segment=args.segment, niche=args.niche, with_email=True
+            store, limit=budget * 3, segment=args.segment, niche=args.niche, with_email=True
         )
         queue = []
         for row in rows:
-            ok, reason = eligible(conn, row, campaign)
+            ok, reason = eligible(store, row, campaign)
             if ok:
                 queue.append(row)
             else:
@@ -204,20 +214,20 @@ def cmd_send(args: argparse.Namespace) -> int:
                     try:
                         mailer.send(message["to"], message["subject"], message["body"])
                         database.log_outreach(
-                            conn, row["id"], channel="email", template=args.template,
+                            store, row["id"], channel="email", template=args.template,
                             to_addr=message["to"], subject=message["subject"],
                             body=message["body"], status="verstuurd",
                         )
-                        conn.commit()
+                        store.commit()
                         sent += 1
                         print(f"{GREEN}verstuurd{RESET} {message['to']}")
                     except Exception as exc:  # noqa: BLE001 - alles loggen, doorgaan
                         database.log_outreach(
-                            conn, row["id"], channel="email", template=args.template,
+                            store, row["id"], channel="email", template=args.template,
                             to_addr=message["to"], subject=message["subject"],
                             status="mislukt", error=str(exc),
                         )
-                        conn.commit()
+                        store.commit()
                         failed += 1
                         print(f"{RED}mislukt{RESET}   {message['to']}: {exc}")
                     if index < len(queue) - 1:
@@ -236,9 +246,9 @@ def cmd_run(args: argparse.Namespace) -> int:
     settings = autopilot_settings(campaign)
     live = True if args.confirm else (False if args.dry_run else None)
 
-    with database.session(args.db) as conn:
+    with database.session(args.db) as store:
         counters = run_cycle(
-            campaign, conn, trigger=args.trigger, live=live,
+            campaign, store, trigger=args.trigger, live=live,
             report=lambda line: print(f"{DIM}{line}{RESET}"),
             force_discover=args.discover,
             offline=args.offline,
@@ -261,8 +271,8 @@ def cmd_autopilot(args: argparse.Namespace) -> int:
     settings = autopilot_settings(campaign)
 
     if args.once:
-        with database.session(args.db) as conn:
-            run_cycle(campaign, conn, trigger="autopilot",
+        with database.session(args.db) as store:
+            run_cycle(campaign, store, trigger="autopilot",
                       report=lambda line: print(f"{DIM}{line}{RESET}"))
         return 0
 
@@ -282,8 +292,8 @@ def cmd_autopilot(args: argparse.Namespace) -> int:
         print(f"{DIM}Volgende cyclus: {next_run:%d-%m-%Y %H:%M}{RESET}")
         time.sleep(wait)
         try:
-            with database.session(args.db) as conn:
-                run_cycle(campaign, conn, trigger="autopilot",
+            with database.session(args.db) as store:
+                run_cycle(campaign, store, trigger="autopilot",
                           report=lambda line: print(f"{DIM}{line}{RESET}"))
         except Exception as exc:  # noqa: BLE001 - morgen gewoon weer proberen
             print(f"{RED}Cyclus mislukt: {exc}{RESET}")
@@ -291,6 +301,7 @@ def cmd_autopilot(args: argparse.Namespace) -> int:
 
 def cmd_dashboard(args: argparse.Namespace) -> int:
     campaign = load_campaign(args.config)
+    load_dotenv()
     serve(campaign, args.db, host=args.host, port=args.port)
     return 0
 
@@ -298,9 +309,9 @@ def cmd_dashboard(args: argparse.Namespace) -> int:
 def cmd_calllist(args: argparse.Namespace) -> int:
     load_dotenv()
     campaign = load_campaign(args.config)
-    with database.session(args.db) as conn:
+    with database.session(args.db) as store:
         rows = database.ranked_leads(
-            conn, limit=args.top, segment=args.segment, niche=args.niche, with_phone=True
+            store, limit=args.top, segment=args.segment, niche=args.niche, with_phone=True
         )
         if not rows:
             print("Geen leads met telefoonnummer. Draai eerst discover + audit.")
@@ -311,8 +322,8 @@ def cmd_calllist(args: argparse.Namespace) -> int:
 
 
 def cmd_list(args: argparse.Namespace) -> int:
-    with database.session(args.db) as conn:
-        rows = database.ranked_leads(conn, limit=args.top, segment=args.segment, niche=args.niche)
+    with database.session(args.db) as store:
+        rows = database.ranked_leads(store, limit=args.top, segment=args.segment, niche=args.niche)
         for row in rows:
             colour = _color(row["segment"])
             pitch = top_pitches(json.loads(row["findings"] or "[]"), 1)
@@ -327,8 +338,8 @@ def cmd_list(args: argparse.Namespace) -> int:
 
 
 def cmd_stats(args: argparse.Namespace) -> int:
-    with database.session(args.db) as conn:
-        data = report.stats(conn)
+    with database.session(args.db) as store:
+        data = report.stats(store)
     print(f"leads            {data['leads']}")
     print(f"  zonder website {data['no_website']}")
     print(f"  met telefoon   {data['with_phone']}")
@@ -347,9 +358,9 @@ def cmd_stats(args: argparse.Namespace) -> int:
 
 
 def cmd_suppress(args: argparse.Namespace) -> int:
-    with database.session(args.db) as conn:
+    with database.session(args.db) as store:
         for value in args.value:
-            database.suppress(conn, value, args.reason)
+            database.suppress(store, value, args.reason)
             print(f"toegevoegd aan afmeldlijst: {value}")
     return 0
 
@@ -360,7 +371,11 @@ def build_parser() -> argparse.ArgumentParser:
         description="Vind lokale bedrijven met een zwakke online aanwezigheid, "
                     "maak een voorbeeldsite en zet de outreach klaar.",
     )
-    parser.add_argument("--db", default=str(DEFAULT_DB), help="pad naar de SQLite-database")
+    parser.add_argument(
+        "--db", default=None,
+        help="pad naar het databasebestand of een Postgres-URL "
+             "(standaard: DATABASE_URL uit de omgeving, anders data/leads.db)",
+    )
     parser.add_argument("--config", default=None, help="pad naar de campagne-config")
     sub = parser.add_subparsers(dest="command", required=True)
 

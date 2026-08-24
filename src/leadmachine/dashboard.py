@@ -1,20 +1,24 @@
-"""Lokaal dashboard: zien wat er is gevonden, gebouwd, klaargezet en verstuurd.
+"""Het dashboard: zien wat er is gevonden, gebouwd, klaargezet en verstuurd.
 
-Draait op de standaardbibliotheek, geen extra pakketten. Luistert standaard
-alleen op 127.0.0.1. Schrijfacties vereisen een token dat bij het starten wordt
-gegenereerd en in de pagina wordt gezet, zodat een willekeurige website die je
-open hebt staan niet ongemerkt jouw lokale server kan aansturen.
+Draait op de standaardbibliotheek, zodat dezelfde code lokaal werkt en als
+serverless functie op Vercel. Twee dingen verschillen live:
+
+- er hoort een wachtwoord op, want de pagina staat dan op het open internet;
+- de voorbeeldsites komen uit de database in plaats van van schijf, want een
+  serverless omgeving heeft geen schijf om ze op te bewaren.
 """
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import mimetypes
+import os
 import secrets
-import sqlite3
 import threading
 import urllib.parse
-from datetime import datetime
+from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -23,55 +27,100 @@ from . import db as database
 from . import report as reporting
 from .audit import top_pitches
 from .config import OUT_DIR, Campaign
-from .demo import TEMPLATE_DIR, render_demo
+from .demo import TEMPLATE_DIR, build_demo, demo_slug
 from .outreach import draft_email, eligible
-from .pipeline import _stamp, autopilot_settings, run_cycle, send_due
+from .pipeline import autopilot_settings, demo_url_for, run_cycle, send_due
+from .store import Store, now, open_store, stamp
 
 STATE: dict[str, Any] = {"running": False, "log": [], "started": None}
 STATE_LOCK = threading.Lock()
+SESSION_HOURS = 24 * 14
 
 
-def _rows(rows: list[sqlite3.Row]) -> list[dict[str, Any]]:
-    return [dict(row) for row in rows]
+# -- inloggen --------------------------------------------------------------
+def dashboard_password() -> str:
+    return os.environ.get("DASHBOARD_PASSWORD", "")
 
 
-def _overview(conn: sqlite3.Connection, campaign: Campaign) -> dict[str, Any]:
-    stats = reporting.stats(conn)
+def is_hosted() -> bool:
+    """Draaien we op een hostingplatform in plaats van op je eigen machine?"""
+    return bool(os.environ.get("VERCEL") or os.environ.get("LM_HOSTED"))
 
-    sent_per_day = _rows(
-        conn.execute(
-            "SELECT date(COALESCE(sent_at, created_at)) AS dag, COUNT(*) AS aantal "
-            "FROM outreach_log WHERE status = 'verstuurd' "
-            "AND date(COALESCE(sent_at, created_at)) >= date('now', '-13 days') "
-            "GROUP BY dag ORDER BY dag"
-        ).fetchall()
-    )
-    # De grafiek toont altijd veertien dagen, ook de dagen zonder verzendingen.
-    by_day = {row["dag"]: row["aantal"] for row in sent_per_day}
-    days = _rows(
-        conn.execute(
-            "WITH RECURSIVE d(dag) AS ("
-            "  SELECT date('now', '-13 days') UNION ALL"
-            "  SELECT date(dag, '+1 day') FROM d WHERE dag < date('now')"
-            ") SELECT dag FROM d"
-        ).fetchall()
-    )
-    series = [{"dag": row["dag"], "aantal": by_day.get(row["dag"], 0)} for row in days]
+
+def _secret() -> bytes:
+    raw = os.environ.get("SESSION_SECRET") or dashboard_password() or "lokaal"
+    return hashlib.sha256(raw.encode()).digest()
+
+
+def make_session_cookie() -> str:
+    expires = int((now() + timedelta(hours=SESSION_HOURS)).timestamp())
+    signature = hmac.new(_secret(), str(expires).encode(), hashlib.sha256).hexdigest()[:32]
+    return f"{expires}.{signature}"
+
+
+def valid_session(cookie: str) -> bool:
+    expires, _, signature = (cookie or "").partition(".")
+    if not expires.isdigit():
+        return False
+    expected = hmac.new(_secret(), expires.encode(), hashlib.sha256).hexdigest()[:32]
+    return hmac.compare_digest(signature, expected) and int(expires) > now().timestamp()
+
+
+LOGIN_PAGE = """<!doctype html><html lang="nl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Lead-machine</title>
+<style>
+:root{color-scheme:light;--plane:#f9f9f7;--surface:#fcfcfb;--ink:#0b0b0b;--ink2:#52514e;
+--border:rgba(11,11,11,.10);--brand:#2a78d6}
+@media(prefers-color-scheme:dark){:root{color-scheme:dark;--plane:#0d0d0d;--surface:#1a1a19;
+--ink:#fff;--ink2:#c3c2b7;--border:rgba(255,255,255,.10);--brand:#3987e5}}
+body{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--plane);color:var(--ink);
+font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+form{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:32px;width:min(92vw,360px)}
+h1{font-size:1.2rem;margin:0 0 4px;letter-spacing:-.02em}p{color:var(--ink2);font-size:.9rem;margin:0 0 20px}
+input{width:100%;padding:11px 13px;border:1px solid var(--border);border-radius:9px;background:var(--plane);
+color:var(--ink);font:inherit;margin-bottom:12px}
+button{width:100%;padding:11px;border:0;border-radius:9px;background:var(--brand);color:#fff;font:inherit;
+font-weight:600;cursor:pointer}
+.fout{color:#d03b3b;font-size:.85rem;margin:0 0 12px}
+</style></head><body><form method="post" action="/login">
+<h1>Lead<span style="color:var(--brand)">machine</span></h1>
+<p>Even inloggen om verder te gaan.</p>__FOUT__
+<input type="password" name="wachtwoord" placeholder="Wachtwoord" autofocus autocomplete="current-password">
+<button type="submit">Inloggen</button></form></body></html>"""
+
+
+# -- gegevens voor de pagina ----------------------------------------------
+def _overview(store: Store, campaign: Campaign) -> dict[str, Any]:
+    stats = reporting.stats(store)
+
+    # De reeks van veertien dagen bouwen we in Python: datumfuncties verschillen
+    # per database, en dit is een handvol rijen.
+    buckets: dict[str, int] = {}
+    for row in database.sent_since(store, 14):
+        moment = database._as_datetime(row["moment"])
+        if moment:
+            buckets[moment.strftime("%Y-%m-%d")] = buckets.get(moment.strftime("%Y-%m-%d"), 0) + 1
+    today = now().date()
+    series = [
+        {"dag": (today - timedelta(days=13 - i)).isoformat(),
+         "aantal": buckets.get((today - timedelta(days=13 - i)).isoformat(), 0)}
+        for i in range(14)
+    ]
 
     # Een trechter telt bedrijven, geen mails: anders kan een latere stap groter
     # zijn dan een eerdere zodra iemand twee keer is gemaild.
     def bedrijven(sql: str) -> int:
-        return int(conn.execute(sql).fetchone()[0] or 0)
+        return int(store.scalar(sql) or 0)
 
     funnel = [
         {"stap": "Gevonden", "aantal": stats["leads"]},
         {"stap": "Beoordeeld", "aantal": stats["audited"]},
-        {"stap": "Demo gebouwd", "aantal": bedrijven("SELECT COUNT(DISTINCT lead_id) FROM demos")},
+        {"stap": "Demo gebouwd", "aantal": bedrijven("SELECT COUNT(DISTINCT lead_id) AS n FROM demos")},
         {"stap": "Mail klaargezet", "aantal": bedrijven(
-            "SELECT COUNT(DISTINCT lead_id) FROM outreach_log "
+            "SELECT COUNT(DISTINCT lead_id) AS n FROM outreach_log "
             "WHERE status IN ('wacht', 'verstuurd', 'mislukt')")},
         {"stap": "Verstuurd", "aantal": bedrijven(
-            "SELECT COUNT(DISTINCT lead_id) FROM outreach_log WHERE status = 'verstuurd'")},
+            "SELECT COUNT(DISTINCT lead_id) AS n FROM outreach_log WHERE status = 'verstuurd'")},
     ]
 
     settings = autopilot_settings(campaign)
@@ -79,30 +128,31 @@ def _overview(conn: sqlite3.Connection, campaign: Campaign) -> dict[str, Any]:
         "stats": stats,
         "sent_per_day": series,
         "funnel": funnel,
-        "runs": _rows(database.recent_runs(conn, 10)),
-        "queue": _rows(database.pending_outreach(conn, 50)),
+        "runs": database.recent_runs(store, 10),
+        "queue": database.pending_outreach(store, 50),
         "autopilot": {
             **settings,
             "daily_limit": int(campaign.outreach.get("daily_limit", 25)),
             "area": campaign.area,
+            "opslag": store.dialect,
         },
         "running": STATE["running"],
     }
 
 
-def _leads(conn: sqlite3.Connection, query: dict[str, list[str]]) -> list[dict[str, Any]]:
+def _leads(store: Store, query: dict[str, list[str]]) -> list[dict[str, Any]]:
     segment = (query.get("segment") or [""])[0] or None
     niche = (query.get("niche") or [""])[0] or None
     search = (query.get("q") or [""])[0].strip().lower()
-    limit = int((query.get("limit") or ["200"])[0])
+    limit = min(int((query.get("limit") or ["200"])[0]), 1000)
 
     result = []
-    for row in database.ranked_leads(conn, limit=limit * 2, segment=segment, niche=niche):
+    for row in database.ranked_leads(store, limit=limit * 2, segment=segment, niche=niche):
         if search and search not in (row["name"] or "").lower():
             continue
         item = dict(row)
         item["pitches"] = top_pitches(json.loads(row["findings"] or "[]"), 3)
-        item["heeft_demo"] = bool(row["demo_path"])
+        item["heeft_demo"] = bool(row.get("demo_slug"))
         item.pop("raw", None)
         item.pop("findings", None)
         result.append(item)
@@ -111,49 +161,26 @@ def _leads(conn: sqlite3.Connection, query: dict[str, list[str]]) -> list[dict[s
     return result
 
 
-def _lead_detail(conn: sqlite3.Connection, lead_id: int) -> dict[str, Any] | None:
-    row = conn.execute(
+def _lead_detail(store: Store, lead_id: int) -> dict[str, Any] | None:
+    row = store.one(
         "SELECT l.*, a.score, a.segment, a.findings, a.final_url, a.checked_at, "
         "       a.load_ms, a.mobile_ready, a.https, a.platform, "
-        "       d.path AS demo_path, d.url AS demo_url "
+        "       d.slug AS demo_slug, d.url AS demo_url "
         "FROM leads l LEFT JOIN audits a ON a.lead_id = l.id "
         "LEFT JOIN demos d ON d.lead_id = l.id WHERE l.id = ?",
         (lead_id,),
-    ).fetchone()
+    )
     if not row:
         return None
     detail = dict(row)
     detail["findings"] = json.loads(row["findings"] or "[]")
     detail.pop("raw", None)
-    detail["outreach"] = _rows(
-        conn.execute(
-            "SELECT id, status, subject, body, to_addr, template, send_after, sent_at, "
-            "created_at, error FROM outreach_log WHERE lead_id = ? ORDER BY id DESC",
-            (lead_id,),
-        ).fetchall()
+    detail["outreach"] = store.execute(
+        "SELECT id, status, subject, body, to_addr, template, send_after, sent_at, "
+        "created_at, error FROM outreach_log WHERE lead_id = ? ORDER BY id DESC",
+        (lead_id,),
     )
     return detail
-
-
-def _run_in_background(campaign: Campaign, db_path: str, trigger: str) -> None:
-    def worker() -> None:
-        conn = database.connect(db_path)
-        try:
-            run_cycle(campaign, conn, trigger=trigger, report=_log)
-        except Exception as exc:  # noqa: BLE001 - fout hoort in het dashboard, niet in een crash
-            _log(f"Cyclus afgebroken: {exc}")
-        finally:
-            conn.close()
-            with STATE_LOCK:
-                STATE["running"] = False
-
-    with STATE_LOCK:
-        if STATE["running"]:
-            return
-        STATE["running"] = True
-        STATE["log"] = []
-        STATE["started"] = datetime.now().isoformat(timespec="seconds")
-    threading.Thread(target=worker, daemon=True).start()
 
 
 def _log(message: str) -> None:
@@ -162,59 +189,131 @@ def _log(message: str) -> None:
         del STATE["log"][:-200]
 
 
-def make_handler(campaign: Campaign, db_path: str, token: str) -> type[BaseHTTPRequestHandler]:
+def _run_in_background(campaign: Campaign, target: str | None, trigger: str) -> None:
+    def worker() -> None:
+        store = open_store(target)
+        try:
+            run_cycle(campaign, store, trigger=trigger, report=_log)
+        except Exception as exc:  # noqa: BLE001 - fout hoort in het dashboard, niet in een crash
+            _log(f"Cyclus afgebroken: {exc}")
+        finally:
+            store.close()
+            with STATE_LOCK:
+                STATE["running"] = False
+
+    with STATE_LOCK:
+        if STATE["running"]:
+            return
+        STATE["running"] = True
+        STATE["log"] = []
+        STATE["started"] = stamp()
+    threading.Thread(target=worker, daemon=True).start()
+
+
+# -- de webserver ----------------------------------------------------------
+def make_handler(
+    campaign: Campaign, target: str | None, token: str
+) -> type[BaseHTTPRequestHandler]:
     page = (TEMPLATE_DIR / "dashboard.html").read_text(encoding="utf-8")
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "LeadMachine"
 
-        def log_message(self, *args: Any) -> None:  # stil, tenzij er iets misgaat
+        def log_message(self, *args: Any) -> None:
             pass
 
-        # -- helpers ------------------------------------------------------
-        def _send(self, status: int, body: bytes, content_type: str) -> None:
+        # -- hulpjes ---------------------------------------------------
+        def _send(self, status: int, body: bytes, content_type: str, headers: dict[str, str] | None = None) -> None:
             self.send_response(status)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Referrer-Policy", "same-origin")
+            for key, value in (headers or {}).items():
+                self.send_header(key, value)
             self.end_headers()
             self.wfile.write(body)
 
         def _json(self, data: Any, status: int = 200) -> None:
-            self._send(status, json.dumps(data, ensure_ascii=False, default=str).encode(), "application/json; charset=utf-8")
+            body = json.dumps(data, ensure_ascii=False, default=str).encode()
+            self._send(status, body, "application/json; charset=utf-8")
 
-        def _conn(self) -> sqlite3.Connection:
-            return database.connect(db_path)
+        def _store(self) -> Store:
+            return open_store(target)
+
+        def _cookies(self) -> dict[str, str]:
+            raw = self.headers.get("Cookie", "")
+            out = {}
+            for part in raw.split(";"):
+                key, _, value = part.strip().partition("=")
+                if key:
+                    out[key] = value
+            return out
+
+        def _logged_in(self) -> bool:
+            if not dashboard_password():
+                # Lokaal is een open dashboard prima. Op het open internet zou
+                # het je hele leadbestand en de verzendknop weggeven, dus daar
+                # gaat de deur dicht in plaats van open.
+                return not is_hosted()
+            return valid_session(self._cookies().get("lm_sessie", ""))
 
         def _authorised(self) -> bool:
-            return secrets.compare_digest(self.headers.get("X-LM-Token", ""), token)
+            return self._logged_in() and secrets.compare_digest(
+                self.headers.get("X-LM-Token", ""), token
+            )
 
-        # -- routes -------------------------------------------------------
+        def _login_page(self, fout: bool = False) -> None:
+            html = LOGIN_PAGE.replace(
+                "__FOUT__", '<p class="fout">Dat wachtwoord klopt niet.</p>' if fout else ""
+            )
+            self._send(401 if fout else 200, html.encode(), "text/html; charset=utf-8")
+
+        # -- routes ----------------------------------------------------
         def do_GET(self) -> None:  # noqa: N802
             parsed = urllib.parse.urlparse(self.path)
             path, query = parsed.path, urllib.parse.parse_qs(parsed.query)
 
-            if path == "/":
-                html = page.replace("__TOKEN__", token)
-                self._send(200, html.encode("utf-8"), "text/html; charset=utf-8")
-                return
-
             if path.startswith("/demo/"):
-                self._serve_demo(path[len("/demo/"):])
+                self._serve_demo(path[len("/demo/"):])   # openbaar: dit is de pagina die je klant opent
                 return
-
+            if path in {"/gezond", "/health"}:
+                self._json({"status": "ok"})
+                return
+            if path == "/login":
+                self._login_page()
+                return
+            if not self._logged_in():
+                if is_hosted() and not dashboard_password():
+                    self._send(
+                        503,
+                        b"DASHBOARD_PASSWORD is niet ingesteld. Zet die eerst in de "
+                        b"omgevingsvariabelen; zonder wachtwoord blijft dit dashboard dicht.",
+                        "text/plain; charset=utf-8",
+                    )
+                    return
+                # Een API-verzoek hoort een nette 401 te krijgen, geen
+                # inlogpagina met status 200 die een client als data leest.
+                if path.startswith("/api/"):
+                    self._json({"fout": "niet ingelogd"}, 401)
+                else:
+                    self._login_page()
+                return
+            if path in {"/", "/index.html"}:
+                self._send(200, page.replace("__TOKEN__", token).encode(), "text/html; charset=utf-8")
+                return
             if not path.startswith("/api/"):
                 self._json({"fout": "niet gevonden"}, 404)
                 return
 
-            conn = self._conn()
+            store = self._store()
             try:
                 if path == "/api/overview":
-                    self._json(_overview(conn, campaign))
+                    self._json(_overview(store, campaign))
                 elif path == "/api/leads":
-                    self._json(_leads(conn, query))
+                    self._json(_leads(store, query))
                 elif path.startswith("/api/lead/"):
-                    detail = _lead_detail(conn, int(path.rsplit("/", 1)[1]))
+                    detail = _lead_detail(store, int(path.rsplit("/", 1)[1]))
                     self._json(detail or {"fout": "onbekende lead"}, 200 if detail else 404)
                 elif path == "/api/outreach":
                     status = (query.get("status") or [""])[0]
@@ -224,135 +323,147 @@ def make_handler(campaign: Campaign, db_path: str, token: str) -> type[BaseHTTPR
                         + ("WHERE o.status = ? " if status else "")
                         + "ORDER BY o.id DESC LIMIT 300"
                     )
-                    rows = conn.execute(sql, (status,) if status else ()).fetchall()
-                    self._json(_rows(rows))
+                    self._json(store.execute(sql, (status,) if status else ()))
                 elif path == "/api/run/status":
                     with STATE_LOCK:
                         self._json({"running": STATE["running"], "log": list(STATE["log"])})
                 else:
                     self._json({"fout": "niet gevonden"}, 404)
-            except (ValueError, sqlite3.Error) as exc:
+            except (ValueError, Exception) as exc:  # noqa: BLE001
                 self._json({"fout": str(exc)}, 400)
             finally:
-                conn.close()
+                store.close()
 
         def do_POST(self) -> None:  # noqa: N802
-            if not self._authorised():
-                self._json({"fout": "token ontbreekt of klopt niet"}, 403)
+            path = urllib.parse.urlparse(self.path).path
+
+            if path == "/login":
+                length = int(self.headers.get("Content-Length", 0) or 0)
+                form = urllib.parse.parse_qs(self.rfile.read(length).decode())
+                given = (form.get("wachtwoord") or [""])[0]
+                if dashboard_password() and secrets.compare_digest(given, dashboard_password()):
+                    cookie = (
+                        f"lm_sessie={make_session_cookie()}; Path=/; HttpOnly; SameSite=Lax; "
+                        f"Max-Age={SESSION_HOURS * 3600}"
+                        + ("; Secure" if os.environ.get("VERCEL") else "")
+                    )
+                    self._send(303, b"", "text/plain", {"Location": "/", "Set-Cookie": cookie})
+                else:
+                    self._login_page(fout=True)
                 return
 
-            path = urllib.parse.urlparse(self.path).path
-            conn = self._conn()
+            if not self._authorised():
+                self._json({"fout": "niet ingelogd of token klopt niet"}, 403)
+                return
+
+            store = self._store()
             try:
                 if path == "/api/run":
-                    _run_in_background(campaign, db_path, "dashboard")
+                    _run_in_background(campaign, target, "dashboard")
                     self._json({"gestart": True})
                 elif path == "/api/send-now":
-                    sent, failed = send_due(campaign, conn, live=True, report=_log)
-                    conn.commit()
+                    sent, failed = send_due(campaign, store, live=True, report=_log)
+                    store.commit()
                     self._json({"verstuurd": sent, "mislukt": failed})
                 elif path.startswith("/api/lead/"):
-                    self._lead_action(conn, path)
+                    self._lead_action(store, path)
                 elif path.startswith("/api/outreach/"):
-                    self._outreach_action(conn, path)
+                    self._outreach_action(store, path)
                 else:
                     self._json({"fout": "niet gevonden"}, 404)
-            except (ValueError, sqlite3.Error) as exc:
+            except Exception as exc:  # noqa: BLE001
                 self._json({"fout": str(exc)}, 400)
             finally:
-                conn.close()
+                store.close()
 
-        def _lead_action(self, conn: sqlite3.Connection, path: str) -> None:
+        def _lead_action(self, store: Store, path: str) -> None:
             _, _, _, lead_id, action = path.split("/", 4)
-            row = conn.execute(
-                "SELECT l.*, a.score, a.segment, a.findings, d.url AS demo_url, d.path AS demo_path "
+            row = store.one(
+                "SELECT l.*, a.score, a.segment, a.findings, d.url AS demo_url, d.slug AS demo_slug "
                 "FROM leads l LEFT JOIN audits a ON a.lead_id = l.id "
                 "LEFT JOIN demos d ON d.lead_id = l.id WHERE l.id = ?",
                 (int(lead_id),),
-            ).fetchone()
+            )
             if not row:
                 self._json({"fout": "onbekende lead"}, 404)
                 return
 
             if action == "demo":
-                page_path = render_demo(row, campaign)
-                import os as _os
-
-                base = _os.environ.get("DEMO_BASE_URL", "").rstrip("/")
-                database.record_demo(
-                    conn, row["id"], str(page_path),
-                    f"{base}/{page_path.parent.name}/" if base else None,
-                )
-                conn.commit()
-                self._json({"demo": f"/demo/{page_path.parent.name}/"})
+                slug, html = build_demo(row, campaign)
+                database.record_demo(store, row["id"], slug, url=demo_url_for(slug), html=html)
+                store.commit()
+                self._json({"demo": f"/demo/{slug}"})
             elif action == "queue":
-                ok, reason = eligible(conn, row, campaign)
+                ok, reason = eligible(store, row, campaign)
                 if not ok:
                     self._json({"fout": reason}, 400)
                     return
-                message = draft_email(row, campaign, demo_url=row["demo_url"])
                 settings = autopilot_settings(campaign)
-                from datetime import timedelta
-
                 wait = 0 if settings["send_mode"] == "auto" else settings["review_hours"]
-                send_after = _stamp(datetime.utcnow() + timedelta(hours=wait))
-                database.queue_outreach(conn, row["id"], message, "first", send_after)
-                conn.commit()
+                send_after = stamp(now() + timedelta(hours=wait))
+                message = draft_email(row, campaign, demo_url=row.get("demo_url"))
+                database.queue_outreach(store, row["id"], message, "first", send_after)
+                store.commit()
                 self._json({"klaargezet": True, "verstuurt_na": send_after})
             elif action == "suppress":
-                if row["email"]:
-                    database.suppress(conn, row["email"], "via dashboard")
-                conn.execute(
-                    "UPDATE outreach_log SET status = 'geannuleerd' "
-                    "WHERE lead_id = ? AND status = 'wacht'",
+                if row.get("email"):
+                    database.suppress(store, row["email"], "via dashboard")
+                store.execute(
+                    "UPDATE outreach_log SET status = 'geannuleerd' WHERE lead_id = ? AND status = 'wacht'",
                     (row["id"],),
                 )
-                conn.commit()
+                store.commit()
                 self._json({"afgemeld": True})
             else:
                 self._json({"fout": "onbekende actie"}, 404)
 
-        def _outreach_action(self, conn: sqlite3.Connection, path: str) -> None:
+        def _outreach_action(self, store: Store, path: str) -> None:
             _, _, _, outreach_id, action = path.split("/", 4)
             if action == "cancel":
-                database.mark_outreach(conn, int(outreach_id), "geannuleerd", "handmatig")
-                conn.commit()
+                database.mark_outreach(store, int(outreach_id), "geannuleerd", "handmatig")
+                store.commit()
                 self._json({"geannuleerd": True})
             elif action == "now":
-                conn.execute(
-                    "UPDATE outreach_log SET send_after = datetime('now') WHERE id = ? AND status = 'wacht'",
-                    (int(outreach_id),),
+                store.execute(
+                    "UPDATE outreach_log SET send_after = ? WHERE id = ? AND status = 'wacht'",
+                    (stamp(), int(outreach_id)),
                 )
-                conn.commit()
-                sent, failed = send_due(campaign, conn, live=True, report=_log, limit=1)
-                conn.commit()
+                store.commit()
+                sent, failed = send_due(campaign, store, live=True, report=_log, limit=1)
+                store.commit()
                 self._json({"verstuurd": sent, "mislukt": failed})
             else:
                 self._json({"fout": "onbekende actie"}, 404)
 
         def _serve_demo(self, relative: str) -> None:
-            root = (OUT_DIR / "demos").resolve()
-            target = (root / urllib.parse.unquote(relative)).resolve()
-            if target.is_dir():
-                target = target / "index.html"
-            # Nooit buiten de demomap serveren. is_relative_to en niet startswith:
-            # anders zou een map met dezelfde naamstam er ook doorheen glippen.
-            if not target.is_relative_to(root) or not target.is_file():
-                self._send(404, b"Demo niet gevonden", "text/plain; charset=utf-8")
+            slug = urllib.parse.unquote(relative).strip("/").split("/")[0]
+            store = self._store()
+            try:
+                row = database.demo_by_slug(store, slug)
+            finally:
+                store.close()
+            if row and row.get("html"):
+                self._send(200, row["html"].encode("utf-8"), "text/html; charset=utf-8")
                 return
-            content_type = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
-            self._send(200, target.read_bytes(), content_type)
+            # Lokaal kan de pagina ook nog gewoon op schijf staan.
+            root = (OUT_DIR / "demos").resolve()
+            target_file = (root / slug / "index.html").resolve()
+            if target_file.is_relative_to(root) and target_file.is_file():
+                self._send(200, target_file.read_bytes(), "text/html; charset=utf-8")
+                return
+            self._send(404, b"Deze voorbeeldpagina bestaat niet (meer).", "text/plain; charset=utf-8")
 
     return Handler
 
 
-def serve(campaign: Campaign, db_path: str, host: str = "127.0.0.1", port: int = 8765) -> None:
-    token = secrets.token_urlsafe(24)
-    handler = make_handler(campaign, str(db_path), token)
-    httpd = ThreadingHTTPServer((host, port), handler)
+def serve(campaign: Campaign, target: str | None = None, host: str = "127.0.0.1", port: int = 8765) -> None:
+    # Een vast token uit de omgeving houdt een geopende pagina werkend over
+    # herstarts heen; zonder dat is een verse per start prima.
+    token = os.environ.get("DASHBOARD_TOKEN") or secrets.token_urlsafe(24)
+    httpd = ThreadingHTTPServer((host, port), make_handler(campaign, target, token))
     print(f"Dashboard draait op http://{host}:{port}")
-    if host not in {"127.0.0.1", "localhost"}:
-        print("Let op: je stelt het dashboard open buiten deze computer. Dat is geen goed idee.")
+    if host not in {"127.0.0.1", "localhost"} and not dashboard_password():
+        print("Let op: geen DASHBOARD_PASSWORD ingesteld terwijl je buiten deze computer luistert.")
     print("Stoppen met Ctrl-C.")
     try:
         httpd.serve_forever()

@@ -1,15 +1,16 @@
 """De volledige cyclus in een keer: zoeken, beoordelen, bouwen, opstellen, versturen.
 
-Dit is wat de autopilot elke dag draait en wat de knop 'nu draaien' in het
-dashboard aanroept. Elke stap houdt zich aan de limieten uit de config, en
-elke draaibeurt wordt vastgelegd in de tabel runs, zodat je in het dashboard
-kunt terugzien wat er is gebeurd.
+Dit is wat de autopilot draait, wat de knop in het dashboard aanroept en wat de
+cron van Vercel elke keer een stukje van doet. Vandaar het tijdsbudget: in een
+serverless omgeving mag een aanroep maar een beperkt aantal seconden duren, dus
+elke stap kijkt op de klok en stopt op tijd. De volgende aanroep pakt op waar
+deze ophield, want de voortgang staat in de database.
 """
 
 from __future__ import annotations
 
 import os
-import sqlite3
+import time
 import traceback
 from datetime import datetime, timedelta
 from typing import Any, Callable
@@ -17,89 +18,125 @@ from typing import Any, Callable
 from . import db as database
 from .audit import audit_lead
 from .config import Campaign, load_dotenv
-from .demo import render_demo
+from .demo import build_demo
 from .discover import discover
 from .http import PoliteClient
 from .outreach import Mailer, OutreachError, draft_email, eligible, load_suppression_file
+from .store import Store, now, stamp
 
 Reporter = Callable[[str], None]
+
+# Achterwaartse compatibiliteit: het dashboard importeerde deze naam.
+_stamp = staticmethod(stamp) if False else (lambda moment: stamp(moment))
 
 
 def _noop(_: str) -> None:
     pass
 
 
-def _stamp(moment: datetime) -> str:
-    """SQLite vergelijkt datums als tekst, en datetime('now') gebruikt een spatie
-    als scheidingsteken. Met de T van isoformat valt de vergelijking verkeerd uit
-    en blijft een mail een dag in de wachtrij staan."""
-    return moment.strftime("%Y-%m-%d %H:%M:%S")
+class Budget:
+    """Bewaakt hoeveel tijd een aanroep nog heeft. Zonder budget: onbeperkt."""
+
+    def __init__(self, seconds: float | None) -> None:
+        self.seconds = seconds
+        self.started = time.monotonic()
+
+    @property
+    def left(self) -> float:
+        return float("inf") if not self.seconds else self.seconds - (time.monotonic() - self.started)
+
+    def ok(self, reserve: float = 0.0) -> bool:
+        return self.left > reserve
 
 
 def autopilot_settings(campaign: Campaign) -> dict[str, Any]:
     raw = campaign._raw.get("autopilot") or {}
+
+    def value(key: str, fallback: Any) -> Any:
+        """Instellingen mogen ook uit de omgeving komen, zodat je ze op Vercel
+        kunt aanpassen zonder de code opnieuw uit te rollen."""
+        env = os.environ.get("LM_" + key.upper())
+        return env if env not in (None, "") else raw.get(key, fallback)
+
     return {
-        "enabled": bool(raw.get("enabled", False)),
-        "run_at": str(raw.get("run_at", "09:15")),
-        "discover_every_days": int(raw.get("discover_every_days", 7)),
-        "audits_per_run": int(raw.get("audits_per_run", 200)),
-        "demos_per_run": int(raw.get("demos_per_run", 25)),
-        "mails_per_run": int(raw.get("mails_per_run", 20)),
-        "send_mode": str(raw.get("send_mode", "review")),
-        "review_hours": int(raw.get("review_hours", 12)),
-        "min_score": int(raw.get("min_score", 45)),
-        "source": str(raw.get("source", "overpass")),
+        "enabled": str(value("enabled", False)).lower() in {"true", "1", "yes", "ja"},
+        "run_at": str(value("run_at", "09:15")),
+        "discover_every_days": int(value("discover_every_days", 7)),
+        "audits_per_run": int(value("audits_per_run", 200)),
+        "demos_per_run": int(value("demos_per_run", 25)),
+        "mails_per_run": int(value("mails_per_run", 20)),
+        "send_mode": str(value("send_mode", "review")),
+        "review_hours": int(value("review_hours", 12)),
+        "min_score": int(value("min_score", 45)),
+        "source": str(value("source", "overpass")),
     }
 
 
-def _should_discover(conn: sqlite3.Connection, every_days: int) -> bool:
-    last = database.get_meta(conn, "last_discover")
+def public_base_url() -> str:
+    for key in ("PUBLIC_BASE_URL", "DEMO_BASE_URL", "VERCEL_PROJECT_PRODUCTION_URL", "VERCEL_URL"):
+        value = os.environ.get(key, "").strip()
+        if value:
+            return value if value.startswith("http") else f"https://{value}"
+    return ""
+
+
+def demo_url_for(slug: str) -> str | None:
+    base = public_base_url().rstrip("/")
+    return f"{base}/demo/{slug}" if base else None
+
+
+def _writes_to_disk() -> bool:
+    """Op Vercel is alleen /tmp schrijfbaar, dus daar slaan we niets op schijf op."""
+    return not os.environ.get("VERCEL")
+
+
+def _should_discover(store: Store, every_days: int) -> bool:
+    last = database.get_meta(store, "last_discover")
     if not last:
         return True
     try:
-        return datetime.utcnow() - datetime.fromisoformat(last) >= timedelta(days=every_days)
-    except ValueError:
+        return now() - database._as_datetime(last) >= timedelta(days=every_days)
+    except (TypeError, ValueError):
         return True
 
 
 def run_cycle(
     campaign: Campaign,
-    conn: sqlite3.Connection,
+    store: Store,
     trigger: str = "handmatig",
     live: bool | None = None,
     report: Reporter = _noop,
     force_discover: bool = False,
     offline: bool = False,
+    budget_seconds: float | None = None,
 ) -> dict[str, Any]:
-    """Draait een volledige cyclus. live=None betekent: volg de config."""
+    """Draait een cyclus. live=None betekent: volg de instellingen."""
     load_dotenv()
     settings = autopilot_settings(campaign)
     if live is None:
         live = settings["enabled"]
+    budget = Budget(budget_seconds)
 
     counters = {"discovered": 0, "audited": 0, "demos": 0, "queued": 0, "sent": 0, "failed": 0}
-    run_id = database.start_run(conn, trigger)
-    base_url = os.environ.get("DEMO_BASE_URL", "").rstrip("/")
+    run_id = database.start_run(store, trigger)
 
     try:
-        load_suppression_file(conn, campaign)
+        load_suppression_file(store, campaign)
 
         # 1. Nieuwe bedrijven ophalen - niet elke dag, dat levert toch niets nieuws op.
-        if force_discover or _should_discover(conn, settings["discover_every_days"]):
+        if force_discover or _should_discover(store, settings["discover_every_days"]):
             report("Bedrijven ophalen uit OpenStreetMap...")
             for lead in discover(campaign, source=settings["source"]):
-                _, is_new = database.upsert_lead(conn, lead)
+                _, is_new = database.upsert_lead(store, lead)
                 counters["discovered"] += int(is_new)
-            database.set_meta(conn, "last_discover", _stamp(datetime.utcnow()))
-            conn.commit()
+            database.set_meta(store, "last_discover", stamp())
+            store.commit()
             report(f"{counters['discovered']} nieuwe bedrijven gevonden.")
-        else:
-            report("Ophalen overgeslagen (recent genoeg gedaan).")
 
-        # 2. Websites beoordelen.
-        todo = database.leads_without_audit(conn, settings["audits_per_run"])
+        # 2. Websites beoordelen, zolang er tijd is.
+        todo = database.leads_without_audit(store, settings["audits_per_run"])
         if todo:
-            report(f"{len(todo)} websites beoordelen...")
+            report(f"{len(todo)} websites te beoordelen...")
             client = None if offline else PoliteClient(
                 user_agent=str(campaign.audit.get("user_agent", "LeadMachine/1.0")),
                 timeout=float(campaign.audit.get("timeout_seconds", 12)),
@@ -107,60 +144,68 @@ def run_cycle(
                 respect_robots=bool(campaign.audit.get("respect_robots", True)),
             )
             for lead in todo:
+                if not budget.ok(reserve=20):
+                    report("Tijd op; de volgende beurt gaat verder met beoordelen.")
+                    break
                 result = audit_lead(lead, client=client, offline=offline)
                 result["segment"] = campaign.segment(result["score"])
-                database.save_audit(conn, lead["id"], result)
+                database.save_audit(store, lead["id"], result)
                 counters["audited"] += 1
-            conn.commit()
+            store.commit()
 
         # 3. Voorbeeldsites bouwen voor de beste leads die er nog geen hebben.
         candidates = [
-            row for row in database.ranked_leads(conn, limit=settings["demos_per_run"] * 3)
-            if not row["demo_path"] and (row["score"] or 0) >= settings["min_score"]
+            row for row in database.ranked_leads(store, limit=settings["demos_per_run"] * 3)
+            if not row.get("demo_slug") and (row["score"] or 0) >= settings["min_score"]
         ][: settings["demos_per_run"]]
         for row in candidates:
-            path = render_demo(row, campaign)
-            database.record_demo(
-                conn, row["id"], str(path),
-                f"{base_url}/{path.parent.name}/" if base_url else None,
-            )
+            if not budget.ok(reserve=12):
+                break
+            slug, html = build_demo(row, campaign)
+            path = None
+            if _writes_to_disk():
+                from .demo import render_demo
+
+                path = str(render_demo(row, campaign))
+            database.record_demo(store, row["id"], slug, path=path, url=demo_url_for(slug), html=html)
             counters["demos"] += 1
         if counters["demos"]:
-            conn.commit()
+            store.commit()
             report(f"{counters['demos']} voorbeeldsites gebouwd.")
 
         # 4. Mails opstellen en in de wachtrij zetten.
         wait_hours = 0 if settings["send_mode"] == "auto" else settings["review_hours"]
-        send_after = _stamp(datetime.utcnow() + timedelta(hours=wait_hours))
-        for row in database.ranked_leads(conn, limit=settings["mails_per_run"] * 4, with_email=True):
-            if counters["queued"] >= settings["mails_per_run"]:
+        send_after = stamp(now() + timedelta(hours=wait_hours))
+        for row in database.ranked_leads(store, limit=settings["mails_per_run"] * 4, with_email=True):
+            if counters["queued"] >= settings["mails_per_run"] or not budget.ok(reserve=10):
                 break
             if (row["score"] or 0) < settings["min_score"]:
                 continue
-            if database.already_queued(conn, row["id"]):
+            if database.already_queued(store, row["id"]):
                 continue
-            ok, _reason = eligible(conn, row, campaign)
+            ok, _reason = eligible(store, row, campaign)
             if not ok:
                 continue
-            message = draft_email(row, campaign, demo_url=row["demo_url"])
-            database.queue_outreach(conn, row["id"], message, "first", send_after)
+            message = draft_email(row, campaign, demo_url=row.get("demo_url") or demo_url_for(row.get("demo_slug") or ""))
+            database.queue_outreach(store, row["id"], message, "first", send_after)
             counters["queued"] += 1
         if counters["queued"]:
-            conn.commit()
+            store.commit()
             report(
                 f"{counters['queued']} mails klaargezet"
                 + (f" (gaan over {wait_hours} uur de deur uit)." if wait_hours else ".")
             )
 
         # 5. Versturen wat aan de beurt is.
-        sent, failed = send_due(campaign, conn, live=live, report=report)
-        counters["sent"], counters["failed"] = sent, failed
+        counters["sent"], counters["failed"] = send_due(
+            campaign, store, live=live, report=report, budget=budget
+        )
 
-        database.finish_run(conn, run_id, counters)
+        database.finish_run(store, run_id, counters)
         return counters
 
     except Exception as exc:  # noqa: BLE001 - een mislukte run mag de autopilot niet slopen
-        database.finish_run(conn, run_id, counters, status="mislukt", error=str(exc))
+        database.finish_run(store, run_id, counters, status="mislukt", error=str(exc))
         report(f"Fout tijdens de cyclus: {exc}")
         traceback.print_exc()
         raise
@@ -168,20 +213,22 @@ def run_cycle(
 
 def send_due(
     campaign: Campaign,
-    conn: sqlite3.Connection,
+    store: Store,
     live: bool = False,
     report: Reporter = _noop,
     limit: int | None = None,
+    budget: Budget | None = None,
 ) -> tuple[int, int]:
     """Verstuurt wachtrij-items waarvan de wachttijd voorbij is."""
+    budget = budget or Budget(None)
     daily_limit = int(campaign.outreach.get("daily_limit", 25))
-    room = max(0, daily_limit - database.sent_today(conn))
-    budget = min(room, limit) if limit else room
-    if budget <= 0:
+    room = max(0, daily_limit - database.sent_today(store))
+    budget_count = min(room, limit) if limit else room
+    if budget_count <= 0:
         report("Dagelijkse limiet bereikt; vandaag niets meer versturen.")
         return 0, 0
 
-    due = database.due_outreach(conn, budget)
+    due = database.due_outreach(store, budget_count)
     if not due:
         return 0, 0
 
@@ -189,38 +236,39 @@ def send_due(
         report(f"{len(due)} mails staan klaar, maar versturen staat uit (proefdraai).")
         return 0, 0
 
-    from .outreach import throttle
-
     # Vlak voor verzending nogmaals toetsen: er kan intussen een afmelding
-    # binnengekomen zijn. Dit gebeurt voordat de SMTP-verbinding opengaat, zodat
-    # een lijst met alleen afmeldingen niet eens een verbinding kost.
+    # binnengekomen zijn. Dit gebeurt voordat de verbinding opengaat.
     queue = []
     for item in due:
-        if database.is_suppressed(conn, item["to_addr"] or ""):
-            database.mark_outreach(conn, item["id"], "geannuleerd", "afmeldlijst")
+        if database.is_suppressed(store, item["to_addr"] or ""):
+            database.mark_outreach(store, item["id"], "geannuleerd", "afmeldlijst")
             report(f"overgeslagen: {item['to_addr']} staat op de afmeldlijst")
         else:
             queue.append(item)
-    conn.commit()
+    store.commit()
     if not queue:
         return 0, 0
 
+    pause = float(campaign.outreach.get("seconds_between_sends", 45))
     sent = failed = 0
     try:
         with Mailer(campaign, live=True) as mailer:
             for index, item in enumerate(queue):
                 try:
                     mailer.send(item["to_addr"], item["subject"], item["body"])
-                    database.mark_outreach(conn, item["id"], "verstuurd")
+                    database.mark_outreach(store, item["id"], "verstuurd")
                     sent += 1
                     report(f"verstuurd naar {item['to_addr']} ({item['lead_name']})")
                 except Exception as exc:  # noqa: BLE001
-                    database.mark_outreach(conn, item["id"], "mislukt", str(exc))
+                    database.mark_outreach(store, item["id"], "mislukt", str(exc))
                     failed += 1
                     report(f"mislukt naar {item['to_addr']}: {exc}")
-                conn.commit()
+                store.commit()
                 if index < len(queue) - 1:
-                    throttle(campaign)
+                    if not budget.ok(reserve=pause + 5):
+                        report("Tijd op; de rest gaat de volgende beurt de deur uit.")
+                        break
+                    time.sleep(pause)
     except OutreachError as exc:
         report(str(exc))
         return sent, failed

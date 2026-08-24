@@ -24,6 +24,16 @@ python -m leadmachine autopilot    # elke dag vanzelf
 python -m leadmachine dashboard    # zien wat er gebeurt
 ```
 
+Draaien kan op twee manieren, met dezelfde code:
+
+- **Lokaal** - alles in een SQLite-bestand, dashboard op `127.0.0.1`.
+- **Live** - Vercel voor de applicatie, Supabase voor de gegevens, Resend voor
+  de mail, en een cron die dagelijks een stukje van de cyclus doet. Je krijgt
+  een URL waar je inlogt en meekijkt. Zie **[DEPLOY.md](DEPLOY.md)**.
+
+Welke van de twee het wordt, hangt af van een enkele omgevingsvariabele: staat
+er een `DATABASE_URL`, dan praat hij met Postgres, anders met het bestand.
+
 1. **discover** haalt bedrijven op uit OpenStreetMap via de Overpass API.
    Open data, geen scraping, geen voorwaarden die je schendt. Juist de
    ondernemers die zelf niets aan hun online aanwezigheid doen staan daar
@@ -162,6 +172,8 @@ Niet als advies in een handleiding, maar afgedwongen:
 - Wie op de afmeldlijst staat, wordt overgeslagen - op adres én op domein.
 - Dezelfde onderneming niet opnieuw binnen de cooldown (standaard 90 dagen).
 - De audit leest `robots.txt`, wacht tussen requests en identificeert zichzelf.
+- Online blijft het dashboard dicht zolang er geen `DASHBOARD_PASSWORD` is
+  ingesteld; de demopagina's blijven wel openbaar, want die moet je klant openen.
 
 Verder, wat je zelf moet weten: je benadert bedrijven, geen consumenten. Gebruik
 alleen mailadressen die het bedrijf zelf openbaar heeft gemaakt, verwerk een
@@ -192,8 +204,13 @@ bellen mag - het bel-me-niet-register geldt alleen voor consumenten.
 
 ```bash
 python tests/test_leadmachine.py            # audit, demo, mail, database
-python tests/test_pipeline_dashboard.py     # cyclus, wachtrij, dashboard
+python tests/test_pipeline_dashboard.py     # cyclus, wachtrij, dashboard, toegang
+
+# Draait dezelfde pijplijn op een echte Postgres. Slaat zichzelf over
+# zonder database-URL. Wijs hem NOOIT naar je echte database: hij
+# leegt de tabellen.
+LM_TEST_DATABASE_URL=postgresql://... python tests/test_postgres.py
 ```
 
-Veertig tests, volledig offline: geen netwerk, geen echte database, geen echte
-bedrijven, en er wordt nooit een mail verstuurd.
+Vijfenveertig tests op SQLite en elf op Postgres, volledig offline: geen
+netwerk, geen echte bedrijven, en er wordt nooit een mail verstuurd.

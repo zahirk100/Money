@@ -3,19 +3,19 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 from datetime import date
 from pathlib import Path
 from typing import Any
 
 from jinja2 import Environment, FileSystemLoader
 
+from . import db as database
 from .audit import top_pitches
 from .config import OUT_DIR, Campaign
 from .demo import TEMPLATE_DIR
 
 
-def build_calllist(rows: list[sqlite3.Row], campaign: Campaign, demo_base: str = "") -> Path:
+def build_calllist(rows: list[dict[str, Any]], campaign: Campaign, demo_base: str = "") -> Path:
     env = Environment(
         loader=FileSystemLoader(str(TEMPLATE_DIR)), trim_blocks=True, lstrip_blocks=True
     )
@@ -34,8 +34,7 @@ def build_calllist(rows: list[sqlite3.Row], campaign: Campaign, demo_base: str =
                 "city": row["city"],
                 "website": row["website"],
                 "demo_url": row["demo_url"] or (
-                    f"{demo_base.rstrip('/')}/{Path(row['demo_path']).parent.name}/"
-                    if demo_base and row["demo_path"] else None
+                    f"{demo_base.rstrip('/')}/demo/{row['demo_slug']}" if demo_base and row.get("demo_slug") else None
                 ),
                 "pitches": top_pitches(findings, limit=2),
             }
@@ -53,40 +52,31 @@ def build_calllist(rows: list[sqlite3.Row], campaign: Campaign, demo_base: str =
     return path
 
 
-def stats(conn: sqlite3.Connection) -> dict[str, Any]:
-    def one(sql: str, *params: Any) -> int:
-        row = conn.execute(sql, params).fetchone()
-        return int(row[0] or 0)
+def stats(store: Any) -> dict[str, Any]:
+    def count(sql: str, *params: Any) -> int:
+        return int(store.scalar(sql, params) or 0)
 
     per_segment = {
         row["segment"]: row["n"]
-        for row in conn.execute(
-            "SELECT segment, COUNT(*) AS n FROM audits GROUP BY segment"
-        ).fetchall()
+        for row in store.execute("SELECT segment, COUNT(*) AS n FROM audits GROUP BY segment")
     }
-    per_niche = [
-        dict(row)
-        for row in conn.execute(
-            "SELECT l.niche, COUNT(*) AS n, CAST(ROUND(AVG(a.score)) AS INTEGER) AS avg_score "
-            "FROM leads l JOIN audits a ON a.lead_id = l.id "
-            "GROUP BY l.niche ORDER BY avg_score DESC"
-        ).fetchall()
-    ]
+    per_niche = store.execute(
+        "SELECT l.niche, COUNT(*) AS n, CAST(ROUND(AVG(a.score)) AS INTEGER) AS avg_score "
+        "FROM leads l JOIN audits a ON a.lead_id = l.id "
+        "GROUP BY l.niche ORDER BY avg_score DESC"
+    )
     return {
-        "leads": one("SELECT COUNT(*) FROM leads"),
-        "audited": one("SELECT COUNT(*) FROM audits"),
-        "with_email": one("SELECT COUNT(*) FROM leads WHERE email IS NOT NULL AND email != ''"),
-        "with_phone": one("SELECT COUNT(*) FROM leads WHERE phone IS NOT NULL AND phone != ''"),
-        "no_website": one("SELECT COUNT(*) FROM leads WHERE website IS NULL OR website = ''"),
-        "demos": one("SELECT COUNT(*) FROM demos"),
-        "drafted": one("SELECT COUNT(*) FROM outreach_log WHERE status = 'concept'"),
-        "queued": one("SELECT COUNT(*) FROM outreach_log WHERE status = 'wacht'"),
-        "sent": one("SELECT COUNT(*) FROM outreach_log WHERE status = 'verstuurd'"),
-        "failed": one("SELECT COUNT(*) FROM outreach_log WHERE status = 'mislukt'"),
-        "sent_today": one(
-            "SELECT COUNT(*) FROM outreach_log WHERE status = 'verstuurd' "
-            "AND date(COALESCE(sent_at, created_at)) = date('now')"
-        ),
+        "leads": count("SELECT COUNT(*) AS n FROM leads"),
+        "audited": count("SELECT COUNT(*) AS n FROM audits"),
+        "with_email": count("SELECT COUNT(*) AS n FROM leads WHERE email IS NOT NULL AND email <> ''"),
+        "with_phone": count("SELECT COUNT(*) AS n FROM leads WHERE phone IS NOT NULL AND phone <> ''"),
+        "no_website": count("SELECT COUNT(*) AS n FROM leads WHERE website IS NULL OR website = ''"),
+        "demos": count("SELECT COUNT(*) AS n FROM demos"),
+        "drafted": count("SELECT COUNT(*) AS n FROM outreach_log WHERE status = 'concept'"),
+        "queued": count("SELECT COUNT(*) AS n FROM outreach_log WHERE status = 'wacht'"),
+        "sent": count("SELECT COUNT(*) AS n FROM outreach_log WHERE status = 'verstuurd'"),
+        "failed": count("SELECT COUNT(*) AS n FROM outreach_log WHERE status = 'mislukt'"),
+        "sent_today": database.sent_today(store),
         "per_segment": per_segment,
         "per_niche": per_niche,
     }

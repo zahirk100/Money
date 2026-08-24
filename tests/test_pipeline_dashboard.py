@@ -6,7 +6,9 @@ de bedrijven komen uit de fixture en er wordt nooit echt gemaild.
 
 from __future__ import annotations
 
+import http.cookiejar
 import json
+import os
 import sys
 import tempfile
 import threading
@@ -23,6 +25,7 @@ from leadmachine import db as database  # noqa: E402
 from leadmachine.config import load_campaign  # noqa: E402
 from leadmachine.dashboard import _overview, make_handler  # noqa: E402
 from leadmachine.pipeline import autopilot_settings, run_cycle, send_due  # noqa: E402
+from leadmachine.store import now  # noqa: E402  # noqa: E402
 
 EXAMPLE_CONFIG = Path(__file__).resolve().parents[1] / "config" / "campaign.example.yaml"
 
@@ -37,14 +40,14 @@ def campaign(**overrides):
 class TestCycle(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.conn = database.connect(Path(self.tmp.name) / "t.db")
+        self.store = database.connect(Path(self.tmp.name) / "t.db")
 
     def tearDown(self):
-        self.conn.close()
+        self.store.close()
         self.tmp.cleanup()
 
     def test_cycle_fills_the_whole_pipeline(self):
-        counters = run_cycle(campaign(), self.conn, live=False, offline=True)
+        counters = run_cycle(campaign(), self.store, live=False, offline=True)
         self.assertGreater(counters["discovered"], 0)
         self.assertEqual(counters["audited"], counters["discovered"])
         self.assertGreater(counters["demos"], 0)
@@ -53,57 +56,55 @@ class TestCycle(unittest.TestCase):
         self.assertEqual(counters["sent"], 0)
 
     def test_cycle_is_recorded_as_a_run(self):
-        run_cycle(campaign(), self.conn, trigger="test", live=False, offline=True)
-        run = database.recent_runs(self.conn, 1)[0]
+        run_cycle(campaign(), self.store, trigger="test", live=False, offline=True)
+        run = database.recent_runs(self.store, 1)[0]
         self.assertEqual(run["trigger"], "test")
         self.assertEqual(run["status"], "klaar")
         self.assertIsNotNone(run["finished_at"])
 
     def test_second_cycle_does_not_queue_the_same_lead_twice(self):
-        first = run_cycle(campaign(), self.conn, live=False, offline=True)
-        second = run_cycle(campaign(), self.conn, live=False, offline=True)
+        first = run_cycle(campaign(), self.store, live=False, offline=True)
+        second = run_cycle(campaign(), self.store, live=False, offline=True)
         self.assertGreater(first["queued"], 0)
         self.assertEqual(second["queued"], 0)
 
     def test_discovery_is_skipped_when_recent(self):
-        run_cycle(campaign(), self.conn, live=False, offline=True)
-        second = run_cycle(campaign(), self.conn, live=False, offline=True)
+        run_cycle(campaign(), self.store, live=False, offline=True)
+        second = run_cycle(campaign(), self.store, live=False, offline=True)
         self.assertEqual(second["discovered"], 0)
 
     def test_review_mode_delays_sending(self):
-        run_cycle(campaign(send_mode="review", review_hours=12), self.conn, live=False, offline=True)
-        item = database.pending_outreach(self.conn)[0]
-        send_after = datetime.fromisoformat(item["send_after"])
-        self.assertGreater(send_after, datetime.utcnow() + timedelta(hours=11))
+        run_cycle(campaign(send_mode="review", review_hours=12), self.store, live=False, offline=True)
+        item = database.pending_outreach(self.store)[0]
+        send_after = database._as_datetime(item["send_after"])
+        self.assertGreater(send_after, now() + timedelta(hours=11))
         # Nog niets aan de beurt.
-        self.assertEqual(database.due_outreach(self.conn, 10), [])
+        self.assertEqual(database.due_outreach(self.store, 10), [])
 
     def test_auto_mode_queues_for_immediate_sending(self):
-        run_cycle(campaign(send_mode="auto"), self.conn, live=False, offline=True)
-        self.assertTrue(database.due_outreach(self.conn, 10))
+        run_cycle(campaign(send_mode="auto"), self.store, live=False, offline=True)
+        self.assertTrue(database.due_outreach(self.store, 10))
 
     def test_min_score_keeps_weak_leads_out_of_the_queue(self):
-        run_cycle(campaign(min_score=101), self.conn, live=False, offline=True)
-        self.assertEqual(database.pending_outreach(self.conn), [])
+        run_cycle(campaign(min_score=101), self.store, live=False, offline=True)
+        self.assertEqual(database.pending_outreach(self.store), [])
 
     def test_daily_limit_stops_sending(self):
         camp = campaign(send_mode="auto")
         camp.outreach["daily_limit"] = 0
-        run_cycle(camp, self.conn, live=False, offline=True)
-        sent, failed = send_due(camp, self.conn, live=True)
+        run_cycle(camp, self.store, live=False, offline=True)
+        sent, failed = send_due(camp, self.store, live=True)
         self.assertEqual((sent, failed), (0, 0))
 
     def test_suppressed_address_is_dropped_just_before_sending(self):
         camp = campaign(send_mode="auto")
-        run_cycle(camp, self.conn, live=False, offline=True)
-        item = database.due_outreach(self.conn, 1)[0]
-        database.suppress(self.conn, item["to_addr"], "test")
-        self.conn.commit()
-        sent, _ = send_due(camp, self.conn, live=True, limit=1)
+        run_cycle(camp, self.store, live=False, offline=True)
+        item = database.due_outreach(self.store, 1)[0]
+        database.suppress(self.store, item["to_addr"], "test")
+        self.store.commit()
+        sent, _ = send_due(camp, self.store, live=True, limit=1)
         self.assertEqual(sent, 0)
-        row = self.conn.execute(
-            "SELECT status FROM outreach_log WHERE id = ?", (item["id"],)
-        ).fetchone()
+        row = self.store.one("SELECT status FROM outreach_log WHERE id = ?", (item["id"],))
         self.assertEqual(row["status"], "geannuleerd")
 
     def test_settings_fall_back_to_safe_defaults(self):
@@ -117,17 +118,17 @@ class TestCycle(unittest.TestCase):
 class TestOverview(unittest.TestCase):
     def test_funnel_never_grows(self):
         with tempfile.TemporaryDirectory() as tmp:
-            conn = database.connect(Path(tmp) / "t.db")
-            run_cycle(campaign(), conn, live=False, offline=True)
+            store = database.connect(Path(tmp) / "t.db")
+            run_cycle(campaign(), store, live=False, offline=True)
             # Twee mails naar hetzelfde bedrijf mogen de trechter niet laten groeien.
-            lead_id = conn.execute("SELECT lead_id FROM outreach_log LIMIT 1").fetchone()["lead_id"]
+            lead_id = store.one("SELECT lead_id FROM outreach_log LIMIT 1")["lead_id"]
             for _ in range(3):
-                database.log_outreach(conn, lead_id, status="verstuurd", to_addr="x@y.nl")
-            conn.commit()
-            funnel = _overview(conn, campaign())["funnel"]
+                database.log_outreach(store, lead_id, status="verstuurd", to_addr="x@y.nl")
+            store.commit()
+            funnel = _overview(store, campaign())["funnel"]
             aantallen = [stap["aantal"] for stap in funnel]
             self.assertEqual(aantallen, sorted(aantallen, reverse=True))
-            conn.close()
+            store.close()
 
 
 class TestDashboardServer(unittest.TestCase):
@@ -135,9 +136,9 @@ class TestDashboardServer(unittest.TestCase):
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory()
         cls.db_path = str(Path(cls.tmp.name) / "t.db")
-        conn = database.connect(cls.db_path)
-        run_cycle(campaign(), conn, live=False, offline=True)
-        conn.close()
+        store = database.connect(cls.db_path)
+        run_cycle(campaign(), store, live=False, offline=True)
+        store.close()
 
         cls.token = "test-token"
         handler = make_handler(campaign(), cls.db_path, cls.token)
@@ -204,6 +205,94 @@ class TestDashboardServer(unittest.TestCase):
         with self.assertRaises(urllib.error.HTTPError) as ctx:
             self.get("/api/bestaat-niet")
         self.assertEqual(ctx.exception.code, 404)
+
+
+class TestToegang(unittest.TestCase):
+    """Het dashboard mag nooit per ongeluk open op het internet staan."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.db_path = str(Path(self.tmp.name) / "t.db")
+        store = database.connect(self.db_path)
+        run_cycle(campaign(), store, live=False, offline=True)
+        store.close()
+        self._oude_omgeving = {k: os.environ.get(k) for k in ("DASHBOARD_PASSWORD", "LM_HOSTED")}
+        self.httpd = None
+
+    def tearDown(self):
+        for key, value in self._oude_omgeving.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        if self.httpd is not None:
+            # shutdown() blijft hangen als serve_forever() nooit is gestart.
+            self.httpd.shutdown()
+            self.httpd.server_close()
+        self.tmp.cleanup()
+
+    def _start(self):
+        handler = make_handler(campaign(), self.db_path, "token")
+        self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
+        return f"http://127.0.0.1:{self.httpd.server_address[1]}"
+
+    def _status(self, url, **kwargs):
+        try:
+            with urllib.request.urlopen(url, timeout=5, **kwargs) as resp:
+                return resp.status
+        except urllib.error.HTTPError as exc:
+            return exc.code
+
+    def test_hosted_without_password_stays_shut(self):
+        os.environ["LM_HOSTED"] = "1"
+        os.environ.pop("DASHBOARD_PASSWORD", None)
+        base = self._start()
+        self.assertEqual(self._status(base + "/"), 503)
+        self.assertEqual(self._status(base + "/api/overview"), 503)
+
+    def test_demo_pages_stay_public_even_then(self):
+        os.environ["LM_HOSTED"] = "1"
+        os.environ.pop("DASHBOARD_PASSWORD", None)
+        base = self._start()
+        store = database.connect(self.db_path)
+        slug = store.one("SELECT slug FROM demos LIMIT 1")["slug"]
+        store.close()
+        self.assertEqual(self._status(f"{base}/demo/{slug}"), 200)
+
+    def test_password_login_gives_access(self):
+        os.environ["LM_HOSTED"] = "1"
+        os.environ["DASHBOARD_PASSWORD"] = "geheim"
+        base = self._start()
+        self.assertEqual(self._status(base + "/api/overview"), 401)
+
+        request = urllib.request.Request(
+            base + "/login", data=b"wachtwoord=geheim", method="POST")
+        opener = urllib.request.build_opener(
+            urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        with opener.open(request, timeout=5) as resp:
+            self.assertEqual(resp.status, 200)  # volgt de omleiding naar /
+        # De cookie uit dezelfde opener geeft nu toegang tot de API.
+        with opener.open(base + "/api/overview", timeout=5) as resp:
+            self.assertGreater(json.loads(resp.read())["stats"]["leads"], 0)
+
+    def test_wrong_password_is_refused(self):
+        os.environ["LM_HOSTED"] = "1"
+        os.environ["DASHBOARD_PASSWORD"] = "geheim"
+        base = self._start()
+        request = urllib.request.Request(
+            base + "/login", data=b"wachtwoord=fout", method="POST")
+        self.assertEqual(self._status(request), 401)
+
+    def test_session_cookie_cannot_be_forged(self):
+        from leadmachine.dashboard import make_session_cookie, valid_session
+
+        os.environ["DASHBOARD_PASSWORD"] = "geheim"
+        echt = make_session_cookie()
+        self.assertTrue(valid_session(echt))
+        vervalst = echt.split(".")[0] + ".0000000000000000000000000000000"
+        self.assertFalse(valid_session(vervalst))
+        self.assertFalse(valid_session("9999999999.watdanook"))
 
 
 if __name__ == "__main__":
