@@ -269,6 +269,22 @@ def resolve_target(explicit: str | Path | None = None) -> str:
                     "door het databasewachtwoord dat je bij het aanmaken van het project koos "
                     "(kwijt? Project Settings > Database > Reset database password)."
                 )
+            if value.startswith(("http://", "https://")):
+                # Supabase toont bovenaan het project een adres dat op https
+                # begint. Dat is de API, niet de database.
+                raise OpslagOntbreekt(
+                    f"DATABASE_URL begint met {value.split('://')[0]}:// en dat is een webadres, "
+                    "geen databaseverbinding. In Supabase is dat de API-URL die bovenaan je "
+                    "project staat. Wat je nodig hebt zit achter de knop Connect: kies daar "
+                    "Session pooler (poort 5432). Die string begint met postgresql:// en "
+                    "bevat je databasewachtwoord."
+                )
+            if is_hosted() and not is_postgres_url(value):
+                raise OpslagOntbreekt(
+                    "DATABASE_URL lijkt geen databaseverbinding: een online omgeving heeft "
+                    "geen schijf om een bestand op te bewaren. Gebruik de connection string "
+                    "van Supabase; die begint met postgresql://."
+                )
             return value
     if is_hosted():
         raise OpslagOntbreekt(

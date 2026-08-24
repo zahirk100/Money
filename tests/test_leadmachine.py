@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -186,6 +187,54 @@ class TestOutreach(unittest.TestCase):
         wrapped = wrap_paragraphs(text)
         self.assertIn("https://voorbeeld.example.com/een/heel/lang/pad/dat/niet/afgebroken/mag/worden/", wrapped)
         self.assertTrue(all(len(line) <= 72 for line in wrapped.splitlines() if not line.startswith("http")))
+
+
+class TestVerbindingsinstelling(unittest.TestCase):
+    """De meest gemaakte fouten bij het instellen horen zichzelf uit te leggen."""
+
+    def setUp(self):
+        self._oud = {k: os.environ.get(k) for k in ("DATABASE_URL", "LM_HOSTED")}
+
+    def tearDown(self):
+        for sleutel, waarde in self._oud.items():
+            if waarde is None:
+                os.environ.pop(sleutel, None)
+            else:
+                os.environ[sleutel] = waarde
+
+    def _fout(self, url, hosted=True):
+        from leadmachine.store import OpslagOntbreekt, resolve_target
+
+        os.environ["DATABASE_URL"] = url
+        if hosted:
+            os.environ["LM_HOSTED"] = "1"
+        else:
+            os.environ.pop("LM_HOSTED", None)
+        with self.assertRaises(OpslagOntbreekt) as ctx:
+            resolve_target()
+        return str(ctx.exception)
+
+    def test_api_url_instead_of_connection_string(self):
+        melding = self._fout("https://abcdef.supabase.co", hosted=False)
+        self.assertIn("Session pooler", melding)
+        self.assertIn("postgresql://", melding)
+
+    def test_placeholder_password(self):
+        melding = self._fout(
+            "postgresql://postgres.abc:[YOUR-PASSWORD]@aws-1-eu-central-1.pooler.supabase.com:5432/postgres",
+            hosted=False,
+        )
+        self.assertIn("YOUR-PASSWORD", melding)
+
+    def test_file_path_while_hosted(self):
+        self.assertIn("postgresql://", self._fout("data/leads.db"))
+
+    def test_a_proper_connection_string_passes(self):
+        from leadmachine.store import resolve_target
+
+        os.environ["DATABASE_URL"] = "postgresql://postgres:x@ergens.example.com:5432/postgres"
+        os.environ["LM_HOSTED"] = "1"
+        self.assertTrue(resolve_target().startswith("postgresql://"))
 
 
 class TestDatabase(unittest.TestCase):
