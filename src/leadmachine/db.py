@@ -73,6 +73,55 @@ def upsert_lead(store: Store, lead: dict[str, Any]) -> tuple[int, bool]:
     return lead_id, True
 
 
+def upsert_many(store: Store, leads: list[dict[str, Any]], batch: int = 100) -> int:
+    """Voegt een reeks bedrijven in een paar opdrachten toe of werkt ze bij.
+
+    Een voor een is elk bedrijf twee keer heen en weer naar de database. Bij een
+    paar honderd resultaten kost dat meer tijd dan een serverless functie mag
+    draaien. Zo is het twee opdrachten per honderd. Geeft terug hoeveel er nieuw
+    waren.
+    """
+    if not leads:
+        return 0
+
+    nieuw = 0
+    moment = stamp()
+    for start in range(0, len(leads), batch):
+        deel = leads[start : start + batch]
+        sleutels = [(lead["osm_type"], lead["osm_id"]) for lead in deel]
+
+        voorwaarde = " OR ".join(["(osm_type = ? AND osm_id = ?)"] * len(deel))
+        params = [waarde for sleutel in sleutels for waarde in sleutel]
+        bestaand = {
+            (rij["osm_type"], rij["osm_id"])
+            for rij in store.execute(
+                f"SELECT osm_type, osm_id FROM leads WHERE {voorwaarde}", params
+            )
+        }
+        nieuw += sum(1 for sleutel in sleutels if sleutel not in bestaand)
+
+        kolommen = ("osm_type", "osm_id", *LEAD_FIELDS, "raw", "first_seen")
+        rij_sjabloon = "(" + ", ".join("?" for _ in kolommen) + ")"
+        waarden: list[Any] = []
+        for lead in deel:
+            waarden.extend([
+                lead["osm_type"], lead["osm_id"],
+                *[lead.get(veld) for veld in LEAD_FIELDS],
+                json.dumps(lead.get("raw", {}), ensure_ascii=False),
+                moment,
+            ])
+        store.execute(
+            f"INSERT INTO leads ({', '.join(kolommen)}) "
+            f"VALUES {', '.join(rij_sjabloon for _ in deel)} "
+            "ON CONFLICT (osm_type, osm_id) DO UPDATE SET "
+            # first_seen blijft staan: dat is wanneer we het bedrijf voor het
+            # eerst zagen, niet wanneer we het voor het laatst bijwerkten.
+            + ", ".join(f"{veld} = excluded.{veld}" for veld in (*LEAD_FIELDS, "raw")),
+            waarden,
+        )
+    return nieuw
+
+
 AUDIT_COLUMNS = (
     "reachable", "final_url", "status_code", "https", "mobile_ready",
     "title", "description", "load_ms", "html_bytes", "has_contact",
@@ -305,6 +354,17 @@ def finish_run(
         ),
     )
     store.commit()
+
+
+def close_stale_runs(store: Store, minuten: int = 15) -> None:
+    """Een draaibeurt die door een time-out is afgekapt kan zichzelf niet meer
+    afsluiten en zou anders voor altijd op 'bezig' blijven staan."""
+    grens = stamp(now() - timedelta(minutes=minuten))
+    store.execute(
+        "UPDATE runs SET status = 'afgebroken', finished_at = ?, "
+        "error = 'afgekapt door een time-out' WHERE status = 'bezig' AND started_at < ?",
+        (stamp(), grens),
+    )
 
 
 def recent_runs(store: Store, limit: int = 15) -> list[dict[str, Any]]:

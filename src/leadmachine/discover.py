@@ -25,7 +25,7 @@ OVERPASS_ENDPOINTS = [
 FIXTURE = Path(__file__).resolve().parents[2] / "data" / "fixtures" / "sample_osm.json"
 
 
-def build_query(campaign: Campaign, niche: Niche, timeout: int = 120) -> str:
+def build_query(campaign: Campaign, niche: Niche, timeout: int = 25) -> str:
     selectors = []
     for raw in niche.filters:
         key, _, value = raw.partition("=")
@@ -86,7 +86,9 @@ def element_to_lead(element: dict[str, Any], niche_name: str, source: str) -> di
     }
 
 
-def fetch_overpass(query: str, timeout: int = 180) -> dict[str, Any]:
+def fetch_overpass(query: str, timeout: float = 30.0) -> dict[str, Any]:
+    """Wachten heeft een grens. Een serverless functie leeft maar kort, dus een
+    trage query moet opgeven voordat het platform de hele functie afkapt."""
     last_error: Exception | None = None
     for endpoint in OVERPASS_ENDPOINTS:
         try:
@@ -97,7 +99,10 @@ def fetch_overpass(query: str, timeout: int = 180) -> dict[str, Any]:
                 headers={"User-Agent": "LeadMachine/1.0 (OSM lead research)"},
             )
             if resp.status_code == 429:
-                time.sleep(10)
+                # Druk bij Overpass. Even wachten heeft alleen zin als daar tijd
+                # voor is; anders meteen de andere server proberen.
+                if timeout > 20:
+                    time.sleep(5)
                 continue
             resp.raise_for_status()
             return resp.json()
@@ -113,6 +118,7 @@ def discover(
     fixture_path: str | Path | None = None,
     only_niche: str | None = None,
     pause: float = 3.0,
+    timeout: float = 30.0,
 ) -> Iterable[dict[str, Any]]:
     """Levert lead-dicts op. source='fixture' draait volledig offline."""
     niches = [n for n in campaign.niches if not only_niche or n.name == only_niche]
@@ -132,7 +138,9 @@ def discover(
     for index, niche in enumerate(niches):
         if index:
             time.sleep(pause)  # Overpass is gratis; niet leegtrekken
-        payload = fetch_overpass(build_query(campaign, niche))
+        payload = fetch_overpass(
+            build_query(campaign, niche, timeout=max(10, int(timeout) - 5)), timeout=timeout
+        )
         for element in payload.get("elements", []):
             lead = element_to_lead(element, niche.name, "overpass")
             if lead:

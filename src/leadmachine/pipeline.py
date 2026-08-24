@@ -133,9 +133,13 @@ def _discover_step(
     while openstaand and budget.allows(35, branches):
         naam = openstaand[0]
         report(f"Bedrijven ophalen: {naam}...")
-        for lead in discover(campaign, source=settings["source"], only_niche=naam):
-            _, is_new = database.upsert_lead(store, lead)
-            gevonden += int(is_new)
+        # Nooit langer wachten dan er nog tijd is: anders kapt het platform de
+        # functie af terwijl wij nog netjes hadden kunnen opslaan.
+        wachttijd = 30.0 if budget.left == float("inf") else max(8.0, budget.left - 8)
+        binnen = list(discover(
+            campaign, source=settings["source"], only_niche=naam, timeout=wachttijd
+        ))
+        gevonden += database.upsert_many(store, binnen)
         openstaand.pop(0)
         branches += 1
         database.set_meta(store, "discover_pending", json.dumps(openstaand))
@@ -170,6 +174,7 @@ def run_cycle(
     budget = Budget(budget_seconds)
 
     counters = {"discovered": 0, "audited": 0, "demos": 0, "queued": 0, "sent": 0, "failed": 0}
+    database.close_stale_runs(store)
     run_id = database.start_run(store, trigger)
 
     try:

@@ -25,7 +25,7 @@ from leadmachine import db as database  # noqa: E402
 from leadmachine.config import load_campaign  # noqa: E402
 from leadmachine.dashboard import _overview, make_handler  # noqa: E402
 from leadmachine.pipeline import autopilot_settings, run_cycle, send_due  # noqa: E402
-from leadmachine.store import now  # noqa: E402  # noqa: E402
+from leadmachine.store import now, stamp  # noqa: E402  # noqa: E402
 
 EXAMPLE_CONFIG = Path(__file__).resolve().parents[1] / "config" / "campaign.example.yaml"
 
@@ -243,6 +243,56 @@ class TestDashboardServer(unittest.TestCase):
         with self.assertRaises(urllib.error.HTTPError) as ctx:
             self.get("/api/bestaat-niet")
         self.assertEqual(ctx.exception.code, 404)
+
+
+class TestVastgelopenDraaibeurten(unittest.TestCase):
+    def test_a_timed_out_run_does_not_stay_busy_forever(self):
+        """Kapt het platform de functie af, dan kan de draaibeurt zichzelf niet
+        afsluiten. De volgende beurt hoort hem op afgebroken te zetten."""
+        with tempfile.TemporaryDirectory() as tmp:
+            store = database.connect(Path(tmp) / "t.db")
+            oud = database.start_run(store, "cron")
+            store.execute(
+                "UPDATE runs SET started_at = ? WHERE id = ?",
+                (stamp(now() - timedelta(hours=2)), oud),
+            )
+            vers = database.start_run(store, "cron")
+            store.commit()
+
+            database.close_stale_runs(store)
+            store.commit()
+
+            statussen = {r["id"]: r["status"] for r in database.recent_runs(store)}
+            self.assertEqual(statussen[oud], "afgebroken")
+            self.assertEqual(statussen[vers], "bezig", "een lopende beurt mag je niet afsluiten")
+            store.close()
+
+    def test_discovery_never_waits_longer_than_the_budget(self):
+        """De aanroep naar Overpass moet opgeven voordat het platform de hele
+        functie afkapt. Precies dat ging mis bij de eerste echte draaibeurt."""
+        from leadmachine import pipeline
+
+        gezien = {}
+
+        def nep_discover(campaign, source="overpass", only_niche=None, timeout=30.0, **rest):
+            gezien["timeout"] = timeout
+            return iter(())
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = database.connect(Path(tmp) / "t.db")
+            echte = pipeline.discover
+            pipeline.discover = nep_discover
+            try:
+                pipeline._discover_step(
+                    campaign(), store, {"discover_every_days": 7, "source": "overpass"},
+                    pipeline.Budget(20), lambda _: None, True,
+                )
+            finally:
+                pipeline.discover = echte
+            store.close()
+
+        self.assertLess(gezien["timeout"], 20, "wachten mag nooit langer dan het budget")
+        self.assertGreaterEqual(gezien["timeout"], 8)
 
 
 class TestToegang(unittest.TestCase):

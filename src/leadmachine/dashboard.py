@@ -346,7 +346,7 @@ def make_handler(
                 self._json({"fout": "CRON_SECRET ontbreekt of klopt niet"}, 401)
                 return
 
-            budget = float(os.environ.get("CRON_BUDGET_SECONDS", "45"))
+            budget = float(os.environ.get("CRON_BUDGET_SECONDS", "35"))
             try:
                 store = self._store()
             except OpslagOntbreekt as exc:
@@ -476,7 +476,7 @@ def make_handler(
                         # een serverless omgeving: zodra de functie klaar is,
                         # wordt alles opgeruimd. Dus draaien we hier binnen het
                         # verzoek, met hetzelfde tijdsbudget als de cron.
-                        budget = float(os.environ.get("CRON_BUDGET_SECONDS", "45"))
+                        budget = float(os.environ.get("CRON_BUDGET_SECONDS", "35"))
                         counters = run_cycle(
                             campaign, store, trigger="dashboard",
                             budget_seconds=budget, report=_log,

@@ -197,8 +197,27 @@
 const TOKEN = document.body.dataset.token;
 const tip = document.getElementById('tip');
 
-const get  = (url) => fetch(url).then(r => r.json());
-const post = (url) => fetch(url, {method:'POST', headers:{'X-LM-Token': TOKEN}}).then(r => r.json());
+async function haal(url, opties){
+  // Niet blind r.json() aanroepen: bij een time-out of een storing stuurt de
+  // hosting een HTML-pagina terug, en dan krijg je een onbegrijpelijke
+  // parsefout in plaats van te horen wat er aan de hand is.
+  const r = await fetch(url, opties);
+  const tekst = await r.text();
+  let data = null;
+  try { data = tekst ? JSON.parse(tekst) : null; } catch (e) { data = null; }
+
+  if (!r.ok){
+    if (data && data.fout) throw new Error(data.fout);
+    if (r.status === 504 || r.status === 502)
+      throw new Error('De server deed er te lang over. Wat al gedaan was is bewaard; probeer het nog eens.');
+    if (r.status === 401) throw new Error('Je sessie is verlopen. Herlaad de pagina en log opnieuw in.');
+    throw new Error('Serverfout ' + r.status);
+  }
+  if (data === null) throw new Error('Onverwacht antwoord van de server.');
+  return data;
+}
+const get  = (url) => haal(url);
+const post = (url) => haal(url, {method:'POST', headers:{'X-LM-Token': TOKEN}});
 
 const fmt = (n) => (n ?? 0).toLocaleString('nl-NL');
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -405,8 +424,12 @@ async function laadVerzonden(){
 
 /* ---------- acties ------------------------------------------------------- */
 async function actie(url){
-  const res = await post(url);
-  if (res.fout) alert(res.fout);
+  try {
+    const res = await post(url);
+    if (res.fout) alert(res.fout);
+  } catch (err) {
+    alert(err.message || err);
+  }
   await Promise.all([laadOverzicht(), laadWachtrij(), laadVerzonden()]);
   if (!document.getElementById('view-leads').classList.contains('hidden')) laadLeads();
 }
@@ -466,13 +489,21 @@ document.getElementById('run-btn').addEventListener('click', async () => {
   const knop = document.getElementById('run-btn');
   knop.disabled = true; knop.textContent = 'Bezig...';
   document.getElementById('log').textContent = 'Bezig... dit kan een minuut duren.';
-  const res = await post('/api/run');
+  let res;
+  try {
+    res = await post('/api/run');
+  } catch (err) {
+    // De knop mag nooit blijven hangen: zeggen wat er is, en weer vrijgeven.
+    document.getElementById('log').textContent = err.message || String(err);
+    knop.disabled = false; knop.textContent = 'Nu draaien';
+    laadOverzicht();
+    return;
+  }
   if (res.gestart) { volgLog(); return; }      // lokaal: draait op de achtergrond
   // Live draait de cyclus binnen dit verzoek en is hij nu klaar.
-  document.getElementById('log').textContent = res.fout
-    ? 'Fout: ' + res.fout
-    : `Klaar. ${res.discovered} nieuw, ${res.audited} beoordeeld, ${res.demos} demo's, ` +
-      `${res.queued} klaargezet, ${res.sent} verstuurd.`;
+  document.getElementById('log').textContent =
+    `Klaar. ${res.discovered} nieuw, ${res.audited} beoordeeld, ${res.demos} demo's, ` +
+    `${res.queued} klaargezet, ${res.sent} verstuurd.`;
   knop.disabled = false; knop.textContent = 'Nu draaien';
   mailCache = []; laadOverzicht();
 });

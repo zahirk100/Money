@@ -202,6 +202,31 @@ class TestDatabase(unittest.TestCase):
             self.assertEqual(row["name"], "X BV")
             store.close()
 
+    def test_bulk_upsert_counts_new_and_keeps_first_seen(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = database.connect(Path(tmp) / "t.db")
+            leads = [
+                {"osm_type": "node", "osm_id": str(i), "name": f"Bedrijf {i}", "niche": "kapper"}
+                for i in range(5)
+            ]
+            self.assertEqual(database.upsert_many(store, leads), 5)
+            eerste = store.one("SELECT first_seen FROM leads WHERE osm_id = '1'")["first_seen"]
+
+            leads[0]["name"] = "Bedrijf nul, hernoemd"
+            leads.append({"osm_type": "node", "osm_id": "99", "name": "Nieuw", "niche": "kapper"})
+            self.assertEqual(database.upsert_many(store, leads), 1)
+
+            self.assertEqual(store.scalar("SELECT COUNT(*) AS n FROM leads"), 6)
+            self.assertEqual(
+                store.one("SELECT name FROM leads WHERE osm_id = '0'")["name"],
+                "Bedrijf nul, hernoemd",
+            )
+            self.assertEqual(
+                store.one("SELECT first_seen FROM leads WHERE osm_id = '1'")["first_seen"], eerste
+            )
+            self.assertEqual(database.upsert_many(store, []), 0)
+            store.close()
+
     def test_audit_upsert_keeps_one_row_per_lead(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = database.connect(Path(tmp) / "t.db")
