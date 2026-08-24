@@ -91,6 +91,11 @@ def autopilot_settings(campaign: Campaign) -> dict[str, Any]:
         "min_score": int(value("min_score", 45)),
         "backlog_grens": int(value("backlog_grens", 40)),
         "source": str(value("source", "overpass")),
+        # Bedrijven met een website halen we standaard niet op: die vullen de
+        # lijst, kosten de meeste controletijd, en zijn zelden de klant die je
+        # zoekt. Zet op false als je ook verouderde sites wilt meenemen.
+        "alleen_zonder_website": str(value("alleen_zonder_website", True)).lower()
+                                 not in {"false", "0", "no", "nee"},
     }
 
 
@@ -208,6 +213,7 @@ def _discover_step(
             binnen = list(discover(
                 campaign, source=settings["source"], only_niche=naam,
                 timeout=wachttijd, area=gebied,
+                alleen_zonder_website=settings.get("alleen_zonder_website", True),
             ))
         except Exception as exc:  # noqa: BLE001
             # Een storing bij Overpass mag de rest van de cyclus niet slopen:

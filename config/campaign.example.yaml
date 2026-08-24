@@ -92,6 +92,11 @@ autopilot:
   min_score: 45
   # 'overpass' voor echte data, 'fixture' om offline te oefenen.
   source: overpass
+  # Alleen bedrijven zonder eigen website ophalen. Dat scheelt een lijst vol
+  # bedrijven die je toch niet benadert, en zulke leads hoeven ook niet
+  # gecontroleerd te worden - verreweg de traagste stap.
+  # Zet op false als je ook verouderde of kapotte sites wilt meenemen.
+  alleen_zonder_website: true
 
 offer:
   # Wat je verkoopt. Komt terug in de mail en op de demo-pagina.

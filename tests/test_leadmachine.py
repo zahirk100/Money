@@ -49,6 +49,20 @@ class TestDiscover(unittest.TestCase):
         gekozen = query.split('area["name"="')[1].split('"')[0]
         self.assertIn(gekozen, alle_gemeenten())
 
+    def test_query_asks_only_for_businesses_without_a_website(self):
+        """Bedrijven met een website vullen de lijst, kosten de meeste
+        controletijd, en zijn zelden de klant die je zoekt."""
+        query = build_query(campaign(), campaign().niches[0], area="Zwolle")
+        for tag in ("website", "contact:website", "url"):
+            self.assertIn(f'[!"{tag}"]', query)
+
+    def test_the_filter_can_be_turned_off(self):
+        query = build_query(
+            campaign(), campaign().niches[0], area="Zwolle", alleen_zonder_website=False
+        )
+        self.assertNotIn("[!", query)
+        self.assertIn('nwr["shop"="hairdresser"](area.searchArea);', query)
+
     def test_element_without_name_is_skipped(self):
         self.assertIsNone(element_to_lead({"type": "node", "id": 1, "tags": {}}, "kapper", "test"))
 

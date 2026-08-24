@@ -747,6 +747,33 @@ class TestToegang(unittest.TestCase):
         self.assertEqual(len(volgorde), len(leads), "er mag niets wegvallen")
         self.assertEqual(_om_en_om([]), [])
 
+    def test_the_cycle_passes_the_website_filter_along(self):
+        from leadmachine import pipeline
+
+        gezien = {}
+
+        def nep_discover(campaign, source="overpass", only_niche=None, area=None,
+                         alleen_zonder_website=None, **rest):
+            gezien["filter"] = alleen_zonder_website
+            return iter(())
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = database.connect(Path(tmp) / "t.db")
+            echte = pipeline.discover
+            pipeline.discover = nep_discover
+            try:
+                pipeline._discover_step(
+                    campaign(), store,
+                    {"discover_every_days": 7, "source": "overpass", "backlog_grens": 999,
+                     "alleen_zonder_website": True},
+                    pipeline.Budget(None), lambda _: None, True,
+                )
+            finally:
+                pipeline.discover = echte
+            store.close()
+
+        self.assertTrue(gezien["filter"])
+
     def test_an_overpass_outage_does_not_kill_the_cycle(self):
         """Beoordelen en demo's bouwen hebben niets met Overpass te maken; die
         horen door te gaan als het ophalen stukloopt."""

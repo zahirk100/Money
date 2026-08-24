@@ -25,14 +25,31 @@ OVERPASS_ENDPOINTS = [
 FIXTURE = Path(__file__).resolve().parents[2] / "data" / "fixtures" / "sample_osm.json"
 
 
-def build_query(campaign: Campaign, niche: Niche, timeout: int = 25, area: str | None = None) -> str:
+# Tags waarmee een bedrijf een eigen website aangeeft.
+WEBSITE_TAGS = ("website", "contact:website", "url")
+
+
+def build_query(
+    campaign: Campaign,
+    niche: Niche,
+    timeout: int = 25,
+    area: str | None = None,
+    alleen_zonder_website: bool = True,
+) -> str:
+    """Bouwt de Overpass-opdracht.
+
+    Standaard vraagt hij alleen bedrijven zonder website op. Dat scheelt niet
+    alleen een lijst vol bedrijven die je toch niet gaat benaderen: zulke leads
+    hoeven ook niet gecontroleerd te worden, en dat is verreweg de traagste stap.
+    """
+    zonder = "".join(f'[!"{tag}"]' for tag in WEBSITE_TAGS) if alleen_zonder_website else ""
     selectors = []
     for raw in niche.filters:
         key, _, value = raw.partition("=")
         key, value = key.strip(), value.strip()
         selectors.append(
-            f'  nwr["{key}"="{value}"](area.searchArea);' if value
-            else f'  nwr["{key}"](area.searchArea);'
+            f'  nwr["{key}"="{value}"]{zonder}(area.searchArea);' if value
+            else f'  nwr["{key}"]{zonder}(area.searchArea);'
         )
     return (
         f"[out:json][timeout:{timeout}];\n"
@@ -120,6 +137,7 @@ def discover(
     pause: float = 3.0,
     timeout: float = 30.0,
     area: str | None = None,
+    alleen_zonder_website: bool = True,
 ) -> Iterable[dict[str, Any]]:
     """Levert lead-dicts op. source='fixture' draait volledig offline."""
     niches = [n for n in campaign.niches if not only_niche or n.name == only_niche]
@@ -142,10 +160,18 @@ def discover(
         if index:
             time.sleep(pause)  # Overpass is gratis; niet leegtrekken
         payload = fetch_overpass(
-            build_query(campaign, niche, timeout=max(10, int(timeout) - 5), area=gebied),
+            build_query(
+                campaign, niche, timeout=max(10, int(timeout) - 5), area=gebied,
+                alleen_zonder_website=alleen_zonder_website,
+            ),
             timeout=timeout,
         )
         for element in payload.get("elements", []):
             lead = element_to_lead(element, niche.name, "overpass")
-            if lead:
-                yield lead
+            if not lead:
+                continue
+            # Vangnet: een enkele keer staat er toch een adres in dat wij als
+            # website lezen (bijvoorbeeld via een tag die we niet uitsloten).
+            if alleen_zonder_website and lead.get("website"):
+                continue
+            yield lead
