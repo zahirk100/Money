@@ -69,6 +69,12 @@ om dat uit te sparen.
 
 3. Deploy. Ga naar `https://jouwproject.vercel.app` - je krijgt een inlogscherm.
 
+> Mis je nog iets, dan krijg je geen kale foutmelding maar een pagina die
+> opnoemt welke variabelen ontbreken. `https://jouwproject.vercel.app/gezond`
+> geeft hetzelfde als JSON: `{"status":"ok","klaar":true}` betekent dat alles
+> staat. Let op: een variabele toevoegen werkt pas na een nieuwe uitrol
+> (Deployments &rsaquo; ... &rsaquo; Redeploy).
+
 Zonder `DASHBOARD_PASSWORD` blijft het dashboard dicht met een melding. Dat is
 expres: anders staat je hele leadbestand inclusief verzendknop open op internet.
 De demopagina's blijven wel openbaar, want die moeten je klanten kunnen openen.
@@ -128,7 +134,7 @@ Je kunt dus gratis beginnen. De eerste rekening die je tegenkomt is het domein.
 
 | Wat je ziet | Wat er aan de hand is |
 |---|---|
-| 503 met "DASHBOARD_PASSWORD is niet ingesteld" | die variabele ontbreekt op Vercel |
+| Pagina "Bijna klaar - er ontbreekt nog wat" | de opgesomde variabelen staan nog niet op Vercel, of je hebt na het invullen nog niet opnieuw uitgerold |
 | Inloggen lukt, knoppen doen niets | `DASHBOARD_TOKEN` ontbreekt, elke instantie verzint dan een eigen token |
 | `/api/cron` geeft 401 | `CRON_SECRET` ontbreekt of komt niet overeen |
 | Cyclus stopt halverwege | normaal: tijdsbudget op, de volgende beurt gaat verder |

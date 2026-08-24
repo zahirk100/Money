@@ -233,6 +233,15 @@ class Store:
         self.close()
 
 
+class OpslagOntbreekt(RuntimeError):
+    """Live draaien zonder database. Terugvallen op een bestand kan daar niet:
+    de schijf van een serverless functie is alleen-lezen."""
+
+
+def is_hosted() -> bool:
+    return bool(os.environ.get("VERCEL") or os.environ.get("LM_HOSTED"))
+
+
 def resolve_target(explicit: str | Path | None = None) -> str:
     """Waar de gegevens staan: expliciet, anders DATABASE_URL, anders lokaal bestand."""
     if explicit:
@@ -241,6 +250,13 @@ def resolve_target(explicit: str | Path | None = None) -> str:
         value = os.environ.get(key)
         if value:
             return value
+    if is_hosted():
+        raise OpslagOntbreekt(
+            "DATABASE_URL is niet ingesteld. Zonder database kan dit niet draaien: "
+            "de schijf van een serverless functie is alleen-lezen. Zet de connection "
+            "string van je Supabase-project (Session pooler, poort 5432) in de "
+            "omgevingsvariabelen en rol opnieuw uit."
+        )
     from .config import DEFAULT_DB
 
     return str(DEFAULT_DB)

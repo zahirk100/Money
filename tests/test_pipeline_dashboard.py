@@ -216,7 +216,9 @@ class TestToegang(unittest.TestCase):
         store = database.connect(self.db_path)
         run_cycle(campaign(), store, live=False, offline=True)
         store.close()
-        self._oude_omgeving = {k: os.environ.get(k) for k in ("DASHBOARD_PASSWORD", "LM_HOSTED")}
+        self._oude_omgeving = {
+            k: os.environ.get(k) for k in ("DASHBOARD_PASSWORD", "LM_HOSTED", "DATABASE_URL")
+        }
         self.httpd = None
 
     def tearDown(self):
@@ -231,8 +233,10 @@ class TestToegang(unittest.TestCase):
             self.httpd.server_close()
         self.tmp.cleanup()
 
-    def _start(self):
-        handler = make_handler(campaign(), self.db_path, "token")
+    def _start(self, target: str | None = "__standaard__"):
+        handler = make_handler(
+            campaign(), self.db_path if target == "__standaard__" else target, "token"
+        )
         self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler)
         threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
         return f"http://127.0.0.1:{self.httpd.server_address[1]}"
@@ -250,6 +254,44 @@ class TestToegang(unittest.TestCase):
         base = self._start()
         self.assertEqual(self._status(base + "/"), 503)
         self.assertEqual(self._status(base + "/api/overview"), 503)
+
+    def test_setup_page_names_what_is_missing(self):
+        os.environ["LM_HOSTED"] = "1"
+        os.environ.pop("DASHBOARD_PASSWORD", None)
+        os.environ.pop("DATABASE_URL", None)
+        base = self._start(target=None)
+        try:
+            urllib.request.urlopen(base + "/", timeout=5)
+            self.fail("had een 503 moeten geven")
+        except urllib.error.HTTPError as exc:
+            self.assertEqual(exc.code, 503)
+            pagina = exc.read().decode()
+        self.assertIn("DATABASE_URL", pagina)
+        self.assertIn("DASHBOARD_PASSWORD", pagina)
+
+    def test_health_check_reports_readiness(self):
+        os.environ["LM_HOSTED"] = "1"
+        os.environ.pop("DASHBOARD_PASSWORD", None)
+        base = self._start(target=None)
+        with urllib.request.urlopen(base + "/gezond", timeout=5) as resp:
+            self.assertFalse(json.loads(resp.read())["klaar"])
+
+    def test_local_run_needs_no_database_url(self):
+        """Zonder hosting valt hij gewoon terug op het bestand."""
+        os.environ.pop("LM_HOSTED", None)
+        os.environ.pop("DATABASE_URL", None)
+        from leadmachine.store import resolve_target
+
+        self.assertTrue(resolve_target().endswith(".db"))
+
+    def test_hosted_without_database_url_is_a_clear_error(self):
+        os.environ["LM_HOSTED"] = "1"
+        os.environ.pop("DATABASE_URL", None)
+        from leadmachine.store import OpslagOntbreekt, resolve_target
+
+        with self.assertRaises(OpslagOntbreekt) as ctx:
+            resolve_target()
+        self.assertIn("DATABASE_URL", str(ctx.exception))
 
     def test_demo_pages_stay_public_even_then(self):
         os.environ["LM_HOSTED"] = "1"

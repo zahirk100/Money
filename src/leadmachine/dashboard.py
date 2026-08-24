@@ -30,7 +30,7 @@ from .config import OUT_DIR, Campaign
 from .demo import TEMPLATE_DIR, build_demo, demo_slug
 from .outreach import draft_email, eligible
 from .pipeline import autopilot_settings, demo_url_for, run_cycle, send_due
-from .store import Store, now, open_store, stamp
+from .store import OpslagOntbreekt, Store, now, open_store, stamp
 
 STATE: dict[str, Any] = {"running": False, "log": [], "started": None}
 STATE_LOCK = threading.Lock()
@@ -45,6 +45,27 @@ def dashboard_password() -> str:
 def is_hosted() -> bool:
     """Draaien we op een hostingplatform in plaats van op je eigen machine?"""
     return bool(os.environ.get("VERCEL") or os.environ.get("LM_HOSTED"))
+
+
+# Zonder deze twee kan een live omgeving niet werken. De rest is optioneel:
+# je kunt prima eerst rondkijken zonder te kunnen mailen.
+VEREIST = [
+    ("DATABASE_URL", "de connection string van je Supabase-project "
+                     "(Project Settings &rsaquo; Database &rsaquo; Session pooler)"),
+    ("DASHBOARD_PASSWORD", "het wachtwoord waarmee jij hier inlogt"),
+]
+
+
+def _ontbrekende_instellingen(target: str | None = None) -> list[tuple[str, str]]:
+    """Een expliciet meegegeven database telt als ingevuld; dan is de
+    omgevingsvariabele niet nodig."""
+    ontbreekt = []
+    for naam, uitleg in VEREIST:
+        if naam == "DATABASE_URL" and target:
+            continue
+        if not os.environ.get(naam, "").strip():
+            ontbreekt.append((naam, uitleg))
+    return ontbreekt
 
 
 def _secret() -> bytes:
@@ -65,6 +86,30 @@ def valid_session(cookie: str) -> bool:
     expected = hmac.new(_secret(), expires.encode(), hashlib.sha256).hexdigest()[:32]
     return hmac.compare_digest(signature, expected) and int(expires) > now().timestamp()
 
+
+SETUP_PAGE = """<!doctype html><html lang="nl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Nog even instellen</title>
+<style>
+:root{color-scheme:light;--plane:#f9f9f7;--surface:#fcfcfb;--ink:#0b0b0b;--ink2:#52514e;
+--border:rgba(11,11,11,.10);--brand:#2a78d6;--warn:#fab219}
+@media(prefers-color-scheme:dark){:root{color-scheme:dark;--plane:#0d0d0d;--surface:#1a1a19;
+--ink:#fff;--ink2:#c3c2b7;--border:rgba(255,255,255,.10);--brand:#3987e5}}
+body{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--plane);color:var(--ink);
+font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:24px}
+main{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:32px;width:min(94vw,620px)}
+h1{font-size:1.25rem;margin:0 0 6px;letter-spacing:-.02em}
+p{color:var(--ink2);font-size:.93rem;margin:0 0 18px;line-height:1.6}
+ul{margin:0;padding-left:20px}li{margin-bottom:10px;font-size:.93rem}
+code{background:var(--plane);border:1px solid var(--border);border-radius:5px;padding:1px 6px;font-size:.86em}
+.stap{color:var(--ink2);font-size:.86rem;margin-top:22px;border-top:1px solid var(--border);padding-top:16px}
+</style></head><body><main>
+<h1>Bijna klaar - er ontbreekt nog wat</h1>
+<p>Zet deze omgevingsvariabelen in Vercel onder <strong>Settings &rsaquo; Environment
+Variables</strong> en rol daarna opnieuw uit (Deployments &rsaquo; &hellip; &rsaquo; Redeploy).</p>
+<ul>__ONTBREEKT__</ul>
+<p class="stap">De demopagina&#39;s voor je klanten werken zodra <code>DATABASE_URL</code> staat.
+Mailen kan pas als <code>RESEND_API_KEY</code> is ingevuld en je domein bij Resend geverifieerd is.</p>
+</main></body></html>"""
 
 LOGIN_PAGE = """<!doctype html><html lang="nl"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Lead-machine</title>
@@ -263,6 +308,14 @@ def make_handler(
                 self.headers.get("X-LM-Token", ""), token
             )
 
+        def _setup_page(self) -> None:
+            items = "".join(
+                f"<li><code>{naam}</code> &mdash; {uitleg}</li>"
+                for naam, uitleg in _ontbrekende_instellingen(target)
+            )
+            html = SETUP_PAGE.replace("__ONTBREEKT__", items)
+            self._send(503, html.encode(), "text/html; charset=utf-8")
+
         def _login_page(self, fout: bool = False) -> None:
             html = LOGIN_PAGE.replace(
                 "__FOUT__", '<p class="fout">Dat wachtwoord klopt niet.</p>' if fout else ""
@@ -278,20 +331,15 @@ def make_handler(
                 self._serve_demo(path[len("/demo/"):])   # openbaar: dit is de pagina die je klant opent
                 return
             if path in {"/gezond", "/health"}:
-                self._json({"status": "ok"})
+                self._json({"status": "ok", "klaar": not _ontbrekende_instellingen(target)})
+                return
+            if is_hosted() and _ontbrekende_instellingen(target):
+                self._setup_page()
                 return
             if path == "/login":
                 self._login_page()
                 return
             if not self._logged_in():
-                if is_hosted() and not dashboard_password():
-                    self._send(
-                        503,
-                        b"DASHBOARD_PASSWORD is niet ingesteld. Zet die eerst in de "
-                        b"omgevingsvariabelen; zonder wachtwoord blijft dit dashboard dicht.",
-                        "text/plain; charset=utf-8",
-                    )
-                    return
                 # Een API-verzoek hoort een nette 401 te krijgen, geen
                 # inlogpagina met status 200 die een client als data leest.
                 if path.startswith("/api/"):
