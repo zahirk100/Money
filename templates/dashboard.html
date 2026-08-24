@@ -307,6 +307,15 @@ function funnelChart(el, data){
 
 /* ---------- weergaven ---------------------------------------------------- */
 let overzichtData = null;
+let autoVerversen = true;   // gaat uit zodra het overzicht faalt
+
+function opnieuwProberen(){
+  autoVerversen = true;
+  document.getElementById('tiles').innerHTML =
+    `<div class="tile"><p class="label">Laden...</p><div class="value">&middot;&middot;&middot;</div>
+     <div class="foot">gegevens ophalen</div></div>`;
+  laadOverzicht();
+}
 
 async function laadOverzicht(){
   let d;
@@ -314,14 +323,18 @@ async function laadOverzicht(){
     d = await get('/api/overview');
     if (d.fout) throw new Error(d.fout);
   } catch (err) {
+    // Niet vanzelf blijven proberen: bij een databaseblokkade houdt elke
+    // nieuwe poging die blokkade juist in stand.
+    autoVerversen = false;
     document.getElementById('tiles').innerHTML =
       `<div class="tile" style="grid-column:1/-1">
          <p class="label">Overzicht kon niet worden geladen</p>
-         <div class="foot">${esc(err.message || err)} &mdash; draait er een cyclus, wacht dan even.
-         Blijft dit staan, kijk dan in de logs van je hosting.</div>
+         <div class="foot" style="margin-bottom:12px">${esc(err.message || err)}</div>
+         <button class="btn sec sm" onclick="opnieuwProberen()">Opnieuw proberen</button>
        </div>`;
     return;
   }
+  autoVerversen = true;
   overzichtData = d;
   const s = d.stats, ap = d.autopilot;
 
@@ -524,7 +537,10 @@ addEventListener('resize', () => {
 });
 
 laadOverzicht();
-setInterval(() => { if (!document.getElementById('view-overzicht').classList.contains('hidden')) laadOverzicht(); }, 30000);
+setInterval(() => {
+  if (!autoVerversen) return;
+  if (!document.getElementById('view-overzicht').classList.contains('hidden')) laadOverzicht();
+}, 30000);
 </script>
 </body>
 </html>

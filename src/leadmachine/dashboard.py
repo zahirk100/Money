@@ -75,6 +75,11 @@ def uitleg_bij_databasefout(exc: Exception) -> str:
         return "De hostnaam uit DATABASE_URL bestaat niet. Kopieer de string opnieuw."
     if "timeout" in laag or "timed out" in laag:
         return "De database antwoordde niet op tijd. Staat het project misschien gepauzeerd?"
+    if "circuitbreaker" in laag or "too many authentication failures" in laag:
+        return ("Supabase heeft nieuwe verbindingen tijdelijk geblokkeerd na te veel mislukte "
+                "inlogpogingen. Controleer eerst het wachtwoord in DATABASE_URL en wacht dan "
+                "een paar minuten; daarna gaat de blokkade vanzelf weer open. Blijf niet "
+                "verversen, want elke poging houdt hem in stand.")
     if "too many clients" in laag or "max clients" in laag:
         return ("De database heeft te veel gelijktijdige verbindingen. "
                 "Even wachten en opnieuw proberen.")
