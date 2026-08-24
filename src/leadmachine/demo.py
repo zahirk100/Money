@@ -166,7 +166,27 @@ def slugify(value: str) -> str:
 # Verandert het ontwerp, dan hoort dit nummer op te lopen. De cyclus bouwt
 # demo's met een ouder nummer opnieuw, zodat een verbetering ook terechtkomt
 # bij bedrijven waarvoor al eerder een pagina is gemaakt.
-DEMO_VERSIE = "2"
+DEMO_VERSIE = "3"
+
+
+def kaart_embed(lat: float | None, lon: float | None) -> str | None:
+    """Een uitsnede van OpenStreetMap rond het bedrijf.
+
+    Dit is het detail waarop een ondernemer zijn eigen straat herkent, en dat
+    scheelt in een voorstel meer dan nog een mooie kleur."""
+    if lat is None or lon is None:
+        return None
+    try:
+        lat, lon = float(lat), float(lon)
+    except (TypeError, ValueError):
+        return None
+    # Ongeveer 400 bij 250 meter: straatniveau, zonder dat het huisnummer zoek raakt.
+    dx, dy = 0.0032, 0.0014
+    return (
+        "https://www.openstreetmap.org/export/embed.html"
+        f"?bbox={lon - dx:.5f}%2C{lat - dy:.5f}%2C{lon + dx:.5f}%2C{lat + dy:.5f}"
+        f"&layer=mapnik&marker={lat:.5f}%2C{lon:.5f}"
+    )
 
 
 def thema_van(niche: str) -> dict[str, str]:
@@ -282,6 +302,7 @@ def _render(lead: Any, campaign: Any) -> str:
             f"https://www.openstreetmap.org/?mlat={lat}&mlon={lon}#map=18/{lat}/{lon}"
             if lat and lon else None
         ),
+        kaart_url=kaart_embed(lat, lon),
         telefoon_href=re.sub(r"[^\d+]", "", telefoon),
         afzender=campaign.outreach,
         jaar=date.today().year,

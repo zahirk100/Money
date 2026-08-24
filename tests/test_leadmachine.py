@@ -168,6 +168,28 @@ class TestDemo(unittest.TestCase):
         for verzinsel in ("recensie", "sterren", "tevreden klanten", "★"):
             self.assertNotIn(verzinsel, html.lower())
 
+    def test_page_shows_the_business_own_street(self):
+        """De kaartuitsnede is het detail waarop iemand zijn eigen zaak
+        herkent; zonder coordinaten mag er geen kapotte kaart staan."""
+        from leadmachine.demo import kaart_embed
+
+        met = kaart_embed(52.5168, 6.0830)
+        self.assertIn("marker=52.51680", met)
+        self.assertIn("bbox=", met)
+        self.assertIsNone(kaart_embed(None, None))
+        self.assertIsNone(kaart_embed("geen getal", 6.0))
+
+        _, html = build_demo(
+            {"name": "Garage X", "niche": "garage", "osm_id": "3", "lat": 52.5, "lon": 6.1, "raw": {}},
+            campaign(),
+        )
+        self.assertIn("openstreetmap.org/export/embed.html", html)
+
+        _, zonder = build_demo(
+            {"name": "Garage X", "niche": "garage", "osm_id": "3", "raw": {}}, campaign()
+        )
+        self.assertNotIn("export/embed.html", zonder)
+
     def test_render_escapes_business_name(self):
         lead = {"name": "<script>x</script> BV", "niche": "kapper", "osm_id": "2"}
         with tempfile.TemporaryDirectory() as tmp:

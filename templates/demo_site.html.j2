@@ -62,13 +62,19 @@
   .knop svg{width:17px;height:17px;flex:none}
 
   /* ---- hero ---- */
-  .hero{position:relative;overflow:hidden;padding:64px 0 74px}
-  .hero::before{content:"";position:absolute;inset:-40% -20% auto -20%;height:120%;z-index:-2;
-    background:
-      radial-gradient(58% 52% at 18% 12%, color-mix(in srgb, var(--accent) 26%, transparent), transparent 70%),
-      radial-gradient(46% 44% at 88% 8%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 68%),
-      linear-gradient(180deg, var(--tint), transparent 78%);
-  }
+  .hero{position:relative;overflow:hidden;padding:72px 0 84px;isolation:isolate}
+  /* Drie zachte kleurvlakken die traag bewegen: geeft diepte zonder foto. */
+  .vlek{position:absolute;border-radius:50%;filter:blur(64px);opacity:.55;z-index:-3;pointer-events:none}
+  .vlek.a{width:52vw;height:52vw;max-width:640px;max-height:640px;left:-14vw;top:-18vw;
+          background:color-mix(in srgb, var(--accent) 42%, transparent);animation:zweef 26s ease-in-out infinite alternate}
+  .vlek.b{width:40vw;height:40vw;max-width:520px;max-height:520px;right:-10vw;top:-8vw;
+          background:color-mix(in srgb, var(--accent) 24%, transparent);animation:zweef 34s ease-in-out infinite alternate-reverse}
+  .vlek.c{width:34vw;height:34vw;max-width:430px;max-height:430px;left:38%;bottom:-22vw;
+          background:color-mix(in srgb, var(--accent) 16%, transparent);animation:zweef 30s ease-in-out infinite alternate}
+  @keyframes zweef{from{transform:translate3d(0,0,0) scale(1)}to{transform:translate3d(4%,6%,0) scale(1.12)}}
+  @media (prefers-reduced-motion: reduce){ .vlek{animation:none} }
+  .hero::before{content:"";position:absolute;inset:0;z-index:-2;
+    background:linear-gradient(180deg, var(--tint), transparent 72%)}
   .hero::after{content:"";position:absolute;inset:0;z-index:-1;opacity:.5;
     background-image:radial-gradient(currentColor .6px, transparent .6px);
     background-size:22px 22px;color:var(--lijn);
@@ -79,14 +85,16 @@
          color:var(--ink-2);padding:6px 14px;border-radius:999px;font-size:.8rem;font-weight:560;
          box-shadow:var(--rand)}
   .label b{color:var(--accent);font-weight:650}
-  h1{font-size:clamp(2.15rem,6.4vw,3.85rem);line-height:1.03;letter-spacing:-.035em;
-     margin:.42em 0 .3em;font-weight:700;max-width:15ch}
+  h1{font-size:clamp(2.35rem,7vw,4.5rem);line-height:.99;letter-spacing:-.042em;
+     margin:.4em 0 .32em;font-weight:720;max-width:14ch;text-wrap:balance}
   .leidend{font-size:clamp(1.02rem,2.1vw,1.16rem);color:var(--ink-2);max-width:52ch;margin:0 0 30px}
   .acties{display:flex;flex-wrap:wrap;gap:12px}
 
   /* ---- kaart met de praktische gegevens ---- */
-  .paneel{background:var(--vlak);border:1px solid var(--lijn);border-radius:var(--r-groot);
-          box-shadow:var(--rand-hoog);overflow:hidden}
+  .paneel{background:color-mix(in srgb, var(--vlak) 82%, transparent);
+          border:1px solid color-mix(in srgb, var(--lijn) 70%, transparent);
+          border-radius:var(--r-groot);box-shadow:var(--rand-hoog);overflow:hidden;
+          backdrop-filter:blur(18px) saturate(150%)}
   .paneel-kop{padding:20px 24px 16px;border-bottom:1px solid var(--lijn);
               background:linear-gradient(180deg, color-mix(in srgb, var(--accent) 7%, transparent), transparent)}
   .status{display:inline-flex;align-items:center;gap:9px;font-weight:640;font-size:.94rem}
@@ -120,9 +128,15 @@
   .titel{font-size:clamp(1.55rem,3.6vw,2.3rem);letter-spacing:-.028em;margin:0 0 10px;font-weight:680}
   .onder{color:var(--ink-2);margin:0 0 40px;max-width:58ch;font-size:1.02rem}
   .drie{display:grid;gap:18px;grid-template-columns:1fr}
-  .dienst{background:var(--vlak);border:1px solid var(--lijn);border-radius:var(--r);padding:28px 26px;
-          box-shadow:var(--rand);transition:transform .2s, box-shadow .2s}
-  .dienst:hover{transform:translateY(-3px);box-shadow:var(--rand-hoog)}
+  .dienst{position:relative;background:var(--vlak);border:1px solid var(--lijn);border-radius:var(--r);
+          padding:30px 28px 32px;box-shadow:var(--rand);overflow:hidden;
+          transition:transform .25s cubic-bezier(.2,.7,.2,1), box-shadow .25s}
+  .dienst::after{content:"";position:absolute;left:0;right:0;bottom:0;height:3px;background:var(--accent);
+                 transform:scaleX(0);transform-origin:left;transition:transform .35s cubic-bezier(.2,.7,.2,1)}
+  .dienst:hover{transform:translateY(-4px);box-shadow:var(--rand-hoog)}
+  .dienst:hover::after{transform:scaleX(1)}
+  .dienst .nr{position:absolute;top:18px;right:24px;font-size:2.6rem;font-weight:750;line-height:1;
+              letter-spacing:-.05em;color:color-mix(in srgb, var(--accent) 13%, transparent)}
   .dienst .ico{width:46px;height:46px;border-radius:13px;display:grid;place-items:center;margin-bottom:18px;
     background:color-mix(in srgb, var(--accent) 12%, transparent);color:var(--accent)}
   .dienst .ico svg{width:23px;height:23px}
@@ -161,6 +175,33 @@
     display:grid;place-items:center}
   .kaartje .plaatje svg{width:42px;height:42px;color:var(--accent)}
   .kaartje .info{padding:22px 24px}
+
+  /* Kaart van hun eigen straat: het detail waarop iemand zichzelf herkent. */
+  .kaart-blok{position:relative;border:1px solid var(--lijn);border-radius:var(--r-groot);overflow:hidden;
+              box-shadow:var(--rand-hoog);background:
+              radial-gradient(70% 80% at 40% 30%, color-mix(in srgb, var(--accent) 14%, transparent), transparent),
+              var(--tint)}
+  .kaart-blok iframe{display:block;width:100%;height:390px;border:0;filter:saturate(.92)}
+  @media (prefers-color-scheme: dark){ .kaart-blok iframe{filter:saturate(.8) brightness(.82) contrast(1.05)} }
+  .kaart-kaartje{position:absolute;left:20px;bottom:20px;right:20px;max-width:330px;
+    background:color-mix(in srgb, var(--vlak) 92%, transparent);backdrop-filter:blur(14px);
+    border:1px solid var(--lijn);border-radius:var(--r);padding:18px 20px;box-shadow:var(--rand-hoog)}
+  .kaart-kaartje .t{font-size:.76rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;
+                    font-weight:640;margin-bottom:5px}
+  .kaart-leeg{height:300px;display:grid;place-items:center;color:var(--accent)}
+  .kaart-leeg svg{width:46px;height:46px}
+
+  /* Afsluitende oproep */
+  .slot{background:linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 62%, #000));
+        color:#fff;border-radius:var(--r-groot);padding:52px 40px;text-align:center;position:relative;
+        overflow:hidden;box-shadow:var(--rand-hoog)}
+  .slot::before{content:"";position:absolute;inset:0;opacity:.16;
+    background-image:radial-gradient(#fff 1px, transparent 1px);background-size:26px 26px}
+  .slot h2{color:#fff;font-size:clamp(1.6rem,4vw,2.5rem);letter-spacing:-.03em;margin:0 0 10px;
+           font-weight:700;position:relative}
+  .slot p{color:rgba(255,255,255,.86);margin:0 auto 28px;max-width:46ch;position:relative}
+  .slot .knop{background:#fff;color:var(--ink);position:relative}
+  .slot .knop.stil{background:rgba(255,255,255,.14);color:#fff;border-color:rgba(255,255,255,.32)}
 
   footer{padding:44px 0 34px;border-top:1px solid var(--lijn);color:var(--muted);font-size:.89rem}
   .footer-grid{display:flex;flex-wrap:wrap;gap:18px;justify-content:space-between;align-items:flex-start}
@@ -227,6 +268,7 @@
 </header>
 
 <div class="hero">
+  <span class="vlek a"></span><span class="vlek b"></span><span class="vlek c"></span>
   <div class="wrap hero-grid">
     <div>
       <span class="label">{% if lead.stad %}<b>{{ lead.stad }}</b> &middot; {% endif %}{{ niche_label }}</span>
@@ -297,6 +339,7 @@
     <div class="drie">
       {% for dienst in diensten %}
       <div class="dienst op">
+        <span class="nr">{{ '%02d'|format(loop.index) }}</span>
         <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
           stroke-linecap="round" stroke-linejoin="round"><path d="{{ iconen.get(dienst.icoon, iconen.vink) }}"/></svg></div>
         <h3>{{ dienst.titel }}</h3>
@@ -343,20 +386,76 @@
         <p class="let">Dit formulier is nog niet aangesloten &mdash; het hoort bij het voorstel.</p>
       </div>
       <div class="kaartje op">
-        <div class="plaatje">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
-               stroke-linejoin="round"><path d="{{ iconen.pin }}"/></svg>
-        </div>
         <div class="info">
           <div class="t" style="font-size:.79rem;color:var(--muted);text-transform:uppercase;
-               letter-spacing:.03em;font-weight:600">Bezoekadres</div>
-          <p style="margin:6px 0 0;font-weight:560">
-            {% if adres %}{{ adres }}<br>{% endif %}
-            {{ ((lead.postcode or '') ~ ' ' ~ (lead.stad or ''))|trim }}
-          </p>
-          {% if route_url %}<p style="margin:14px 0 0"><a href="{{ route_url }}" rel="noopener"
-            style="color:var(--accent);font-weight:560;text-decoration:none">Route bekijken &rarr;</a></p>{% endif %}
+               letter-spacing:.03em;font-weight:600">Liever direct</div>
+          <p style="margin:8px 0 20px;color:var(--ink-2);font-size:.95rem">
+            Een telefoontje is meestal sneller geregeld dan een bericht.</p>
+          {% if lead.telefoon %}
+          <a class="knop" href="tel:{{ telefoon_href }}" style="width:100%;justify-content:center">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+                 stroke-linejoin="round"><path d="{{ iconen.telefoon }}"/></svg>{{ lead.telefoon }}</a>
+          {% endif %}
+          {% if lead.email %}
+          <a class="knop stil" href="mailto:{{ lead.email }}"
+             style="width:100%;justify-content:center;margin-top:10px">{{ lead.email }}</a>
+          {% endif %}
+          {% if week %}
+          <div style="margin-top:20px;padding-top:18px;border-top:1px solid var(--lijn);font-size:.92rem">
+            <span class="status" style="font-size:.92rem">
+              <span class="stip" id="stip2"></span><span id="status-tekst2">Openingstijden</span></span>
+            <a href="#tijden" style="display:block;margin-top:8px;color:var(--accent);
+               text-decoration:none;font-weight:560;font-size:.9rem">Hele week bekijken &rarr;</a>
+          </div>
+          {% endif %}
         </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="vinden">
+  <div class="wrap">
+    <h2 class="titel op">Zo vindt u ons</h2>
+    <p class="onder op">{% if adres %}{{ adres }}{% if lead.stad %}, {{ lead.stad }}{% endif %}{% else %}
+      {{ lead.stad or 'Bij u in de buurt' }}{% endif %}.
+      {% if route_url %}Klik op de kaart voor de route.{% endif %}</p>
+    <div class="kaart-blok op">
+      {% if kaart_url %}
+      <iframe id="kaart" src="{{ kaart_url }}" loading="lazy" referrerpolicy="no-referrer"
+              title="Kaart met de locatie van {{ lead.naam }}"></iframe>
+      {% endif %}
+      <div class="kaart-leeg"{% if kaart_url %} id="kaart-terugval" hidden{% endif %}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"
+             stroke-linecap="round" stroke-linejoin="round"><path d="{{ iconen.pin }}"/></svg>
+      </div>
+      <div class="kaart-kaartje">
+        <div class="t">{{ lead.naam }}</div>
+        <div style="font-weight:560">
+          {% if adres %}{{ adres }}{% endif %}{% if lead.stad %}{% if adres %}<br>{% endif %}
+          {{ ((lead.postcode or '') ~ ' ' ~ lead.stad)|trim }}{% endif %}
+        </div>
+        {% if route_url %}<a href="{{ route_url }}" rel="noopener"
+          style="display:inline-block;margin-top:10px;color:var(--accent);font-weight:600;
+                 text-decoration:none;font-size:.92rem">Route bekijken &rarr;</a>{% endif %}
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="slot op">
+      <h2>{% if lead.telefoon %}Even bellen is het snelst{% else %}Neem gerust contact op{% endif %}</h2>
+      <p>{% if week %}Kijk hierboven wanneer we open zijn, en bel gerust.{% else %}
+        We horen graag waar we mee kunnen helpen.{% endif %}</p>
+      <div class="acties" style="justify-content:center">
+        {% if lead.telefoon %}
+        <a class="knop" href="tel:{{ telefoon_href }}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+               stroke-linejoin="round"><path d="{{ iconen.telefoon }}"/></svg>{{ lead.telefoon }}</a>
+        {% endif %}
+        {% if route_url %}<a class="knop stil" href="{{ route_url }}" rel="noopener">Route</a>{% endif %}
       </div>
     </div>
   </div>
@@ -407,19 +506,26 @@
       if (Number(el.dataset.dag) === vandaag) el.classList.add('vandaag');
     });
 
+    // Dezelfde melding staat op twee plekken; die houden we gelijk.
+    function zet(klasse, kop, onderschrift){
+      stip.className = klasse;
+      tekst.textContent = kop;
+      onder.textContent = onderschrift;
+      const stip2 = document.getElementById('stip2');
+      const tekst2 = document.getElementById('status-tekst2');
+      if (stip2) stip2.className = klasse;
+      if (tekst2) tekst2.textContent = kop + ' \u00b7 ' + onderschrift.toLowerCase();
+    }
+
     const dag = week[vandaag];
     for (const blok of (dag.tijden || [])){
       const [van, tot] = blok.split('-');
       if (minuten >= naarMin(van) && minuten < naarMin(tot)){
-        stip.className = 'stip open';
-        tekst.textContent = 'Nu geopend';
-        onder.textContent = tot === '24:00' ? 'De hele dag' : 'Tot ' + tot;
+        zet('stip open', 'Nu geopend', tot === '24:00' ? 'De hele dag' : 'Tot ' + tot);
         return;
       }
       if (minuten < naarMin(van)){
-        stip.className = 'stip dicht';
-        tekst.textContent = 'Nu gesloten';
-        onder.textContent = 'Vandaag open vanaf ' + van;
+        zet('stip dicht', 'Nu gesloten', 'Vandaag open vanaf ' + van);
         return;
       }
     }
@@ -427,15 +533,12 @@
     for (let i = 1; i <= 7; i++){
       const volgende = week[(vandaag + i) % 7];
       if (!volgende.gesloten && volgende.tijden.length){
-        stip.className = 'stip dicht';
-        tekst.textContent = 'Nu gesloten';
-        onder.textContent = (i === 1 ? 'Morgen' : volgende.naam) + ' open vanaf ' + volgende.tijden[0].split('-')[0];
+        zet('stip dicht', 'Nu gesloten',
+            (i === 1 ? 'Morgen' : volgende.naam) + ' open vanaf ' + volgende.tijden[0].split('-')[0]);
         return;
       }
     }
-    stip.className = 'stip dicht';
-    tekst.textContent = 'Gesloten';
-    onder.textContent = 'Bel gerust voor een afspraak';
+    zet('stip dicht', 'Gesloten', 'Bel gerust voor een afspraak');
   }
 
   // Rustig inzweven bij het scrollen; uit als iemand minder beweging wil.
@@ -456,11 +559,25 @@
     items.forEach(el => kijker.observe(el));
   }
 
+  // Blokkeert een netwerk of browser de kaart, dan hoort daar iets te staan
+  // in plaats van een leeg vlak.
+  function bewaakKaart(){
+    const kaart = document.getElementById('kaart');
+    const terugval = document.getElementById('kaart-terugval');
+    if (!kaart || !terugval) return;
+    let geladen = false;
+    kaart.addEventListener('load', () => { geladen = true; });
+    kaart.addEventListener('error', toon);
+    setTimeout(() => { if (!geladen) toon(); }, 6000);
+    function toon(){ kaart.remove(); terugval.hidden = false; }
+  }
+
   const kop = document.getElementById('kop');
   addEventListener('scroll', () => kop.classList.toggle('vast', scrollY > 8), {passive:true});
 
   toonStatus();
   zweefIn();
+  bewaakKaart();
 })();
 </script>
 </body>
