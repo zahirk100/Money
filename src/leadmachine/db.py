@@ -162,14 +162,19 @@ def ranked_leads(
     niche: str | None = None,
     with_email: bool = False,
     with_phone: bool = False,
+    include_unaudited: bool = False,
 ) -> list[dict[str, Any]]:
+    """include_unaudited toont ook bedrijven die nog niet beoordeeld zijn. Voor
+    het overzicht is dat prettig; voor het kiezen wie een demo of mail krijgt
+    juist niet, want daar is de score het hele punt."""
+    koppeling = "LEFT JOIN" if include_unaudited else "JOIN"
     sql = [
         "SELECT l.*, a.score, a.segment, a.findings, a.final_url, a.reachable,",
         "       d.path AS demo_path, d.url AS demo_url, d.slug AS demo_slug,",
         "       (SELECT COUNT(*) FROM outreach_log o",
         "         WHERE o.lead_id = l.id AND o.status = 'verstuurd') AS sent_count",
         "FROM leads l",
-        "JOIN audits a ON a.lead_id = l.id",
+        f"{koppeling} audits a ON a.lead_id = l.id",
         "LEFT JOIN demos d ON d.lead_id = l.id",
         "WHERE 1 = 1",
     ]
@@ -184,7 +189,8 @@ def ranked_leads(
         sql.append("AND l.email IS NOT NULL AND l.email <> ''")
     if with_phone:
         sql.append("AND l.phone IS NOT NULL AND l.phone <> ''")
-    sql.append("ORDER BY a.score DESC, l.name ASC")
+    # Beoordeelde bedrijven eerst, hoogste score bovenaan; de rest daaronder.
+    sql.append("ORDER BY COALESCE(a.score, -1) DESC, l.name ASC")
     if limit:
         sql.append(f"LIMIT {int(limit)}")
     return store.execute("\n".join(sql), params)

@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 import traceback
 from datetime import datetime, timedelta
 from typing import Any, Callable
@@ -156,6 +158,58 @@ def _discover_step(
     return gevonden
 
 
+# Hoeveel websites tegelijk worden opgehaald. Wachten op een trage server is
+# stilstaan; met een paar tegelijk gaat er per beurt veel meer doorheen. Elk
+# bedrijf heeft zijn eigen server, dus dit belast niemand extra: per host blijft
+# het netjes een verzoek tegelijk met pauze ertussen.
+AUDIT_WORKERS = int(os.environ.get("LM_AUDIT_WORKERS", "6"))
+
+_draad_eigen = threading.local()
+
+
+def _client_van_deze_draad(campaign: Campaign) -> PoliteClient:
+    if not hasattr(_draad_eigen, "client"):
+        _draad_eigen.client = PoliteClient(
+            user_agent=str(campaign.audit.get("user_agent", "LeadMachine/1.0")),
+            timeout=float(campaign.audit.get("timeout_seconds", 12)),
+            delay=float(campaign.audit.get("delay_seconds", 1.5)),
+            respect_robots=bool(campaign.audit.get("respect_robots", True)),
+        )
+    return _draad_eigen.client
+
+
+def _audit_step(
+    campaign: Campaign,
+    store: Store,
+    todo: list[dict[str, Any]],
+    budget: Budget,
+    report: Reporter,
+    offline: bool,
+) -> int:
+    """Beoordeelt websites met een paar tegelijk, en slaat op per groepje."""
+    gedaan = 0
+
+    def beoordeel(lead: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+        client = None if offline else _client_van_deze_draad(campaign)
+        return lead, audit_lead(lead, client=client, offline=offline)
+
+    groep = 1 if offline else AUDIT_WORKERS
+    with ThreadPoolExecutor(max_workers=groep) as pool:
+        for start in range(0, len(todo), groep):
+            if not budget.allows(18, gedaan):
+                report("Tijd op; de volgende beurt gaat verder met beoordelen.")
+                break
+            for lead, resultaat in pool.map(beoordeel, todo[start : start + groep]):
+                resultaat["segment"] = campaign.segment(resultaat["score"])
+                database.save_audit(store, lead["id"], resultaat)
+                gedaan += 1
+            store.commit()
+
+    if gedaan:
+        report(f"{gedaan} websites beoordeeld.")
+    return gedaan
+
+
 def run_cycle(
     campaign: Campaign,
     store: Store,
@@ -189,21 +243,7 @@ def run_cycle(
         todo = database.leads_without_audit(store, settings["audits_per_run"])
         if todo:
             report(f"{len(todo)} websites te beoordelen...")
-            client = None if offline else PoliteClient(
-                user_agent=str(campaign.audit.get("user_agent", "LeadMachine/1.0")),
-                timeout=float(campaign.audit.get("timeout_seconds", 12)),
-                delay=float(campaign.audit.get("delay_seconds", 1.5)),
-                respect_robots=bool(campaign.audit.get("respect_robots", True)),
-            )
-            for lead in todo:
-                if not budget.allows(20, counters["audited"]):
-                    report("Tijd op; de volgende beurt gaat verder met beoordelen.")
-                    break
-                result = audit_lead(lead, client=client, offline=offline)
-                result["segment"] = campaign.segment(result["score"])
-                database.save_audit(store, lead["id"], result)
-                counters["audited"] += 1
-            store.commit()
+            counters["audited"] = _audit_step(campaign, store, todo, budget, report, offline)
 
         # 3. Voorbeeldsites bouwen voor de beste leads die er nog geen hebben.
         candidates = [

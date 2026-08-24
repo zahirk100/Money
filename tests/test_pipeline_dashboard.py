@@ -181,6 +181,28 @@ class TestDashboardServer(unittest.TestCase):
         self.assertGreater(len(alle), len(kappers))
         self.assertTrue(all(lead["niche"] == "kapper" for lead in kappers))
 
+    def test_list_also_shows_leads_that_are_not_audited_yet(self):
+        """Net gevonden bedrijven horen zichtbaar te zijn, ook al is hun website
+        nog niet bekeken. Anders lijkt het alsof er niets is gevonden."""
+        store = database.connect(self.db_path)
+        try:
+            database.upsert_lead(store, {
+                "osm_type": "node", "osm_id": "nieuw-1", "name": "Nog Niet Bekeken BV",
+                "niche": "kapper", "city": "Zwolle",
+            })
+            store.commit()
+        finally:
+            store.close()
+
+        namen = [lead["name"] for lead in self.get("/api/leads")]
+        self.assertIn("Nog Niet Bekeken BV", namen)
+        zonder_oordeel = [lead for lead in self.get("/api/leads") if lead["segment"] is None]
+        self.assertTrue(zonder_oordeel)
+        # Beoordeelde bedrijven horen wel bovenaan te staan.
+        self.assertIsNotNone(self.get("/api/leads")[0]["segment"])
+        # Een filter op segment laat ze juist weg.
+        self.assertTrue(all(l["segment"] == "hot" for l in self.get("/api/leads?segment=hot")))
+
     def test_search_matches_on_name(self):
         found = self.get("/api/leads?q=schaar")
         self.assertTrue(found)

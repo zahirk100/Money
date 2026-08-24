@@ -240,7 +240,9 @@ def _leads(store: Store, query: dict[str, list[str]]) -> list[dict[str, Any]]:
     limit = min(int((query.get("limit") or ["200"])[0]), 1000)
 
     result = []
-    for row in database.ranked_leads(store, limit=limit * 2, segment=segment, niche=niche):
+    for row in database.ranked_leads(
+        store, limit=limit * 2, segment=segment, niche=niche, include_unaudited=not segment
+    ):
         if search and search not in (row["name"] or "").lower():
             continue
         item = dict(row)

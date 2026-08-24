@@ -236,6 +236,13 @@ const STATUS = {
   geannuleerd: {label:'Geannuleerd', kleur:'var(--muted)'},
   concept:     {label:'Concept',     kleur:'var(--muted)'},
 };
+function scoreCel(lead){
+  if (!lead.segment)
+    return `<span class="muted">-</span><br><span class="badge">
+            <span class="dot" style="background:var(--grid)"></span>Nog niet bekeken</span>`;
+  return `<strong>${fmt(lead.score)}</strong><br>${badge(SEGMENT, lead.segment)}`;
+}
+
 const badge = (map, key) => {
   const m = (map[key] || {label:key || '-', kleur:'var(--muted)'});
   return `<span class="badge"><span class="dot" style="background:${m.kleur}"></span>${esc(m.label)}</span>`;
@@ -393,7 +400,7 @@ async function laadLeads(){
     <thead><tr><th class="num">Score</th><th>Bedrijf</th><th>Branche</th><th>Contact</th>
     <th>Demo</th><th>Mail</th><th></th></tr></thead>
     <tbody>${leads.map(l => `<tr>
-      <td class="num"><strong>${fmt(l.score)}</strong><br>${badge(SEGMENT, l.segment)}</td>
+      <td class="num">${scoreCel(l)}</td>
       <td><strong>${esc(l.name)}</strong>${l.city ? ' <span class="muted">' + esc(l.city) + '</span>' : ''}
           <div class="pitch">${esc((l.pitches || [])[0] || '')}</div></td>
       <td class="muted">${esc(l.niche || '-')}</td>
