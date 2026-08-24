@@ -168,6 +168,18 @@ class TestDemo(unittest.TestCase):
         for verzinsel in ("recensie", "sterren", "tevreden klanten", "★"):
             self.assertNotIn(verzinsel, html.lower())
 
+    def test_split_shifts_render_as_html_not_as_text(self):
+        """Het scheidingsteken stond als tekst in de sjabloon en werd door de
+        ontsnapping letterlijk zichtbaar: 09:00-13:00 &nbsp;/&nbsp; 13:40."""
+        _, html = build_demo(
+            {"name": "IntoHair", "niche": "kapper", "osm_id": "9", "raw": {},
+             "opening_hours": "Tu-Fr 09:00-13:00,13:40-18:00"},
+            campaign(),
+        )
+        self.assertNotIn("&amp;nbsp;", html)
+        self.assertIn('<span class="blok">09:00-13:00</span>', html)
+        self.assertIn('<span class="scheiding">', html)
+
     def test_page_shows_the_business_own_street(self):
         """De kaartuitsnede is het detail waarop iemand zijn eigen zaak
         herkent; zonder coordinaten mag er geen kapotte kaart staan."""

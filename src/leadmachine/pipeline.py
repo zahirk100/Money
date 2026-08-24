@@ -153,15 +153,32 @@ def _discover_step(
         report("Ophalen staat even op pauze na een eerdere storing.")
         return 0
 
+    # Waar we naar zoeken: elke gemeente maal elke branche.
+    dekking = [
+        f"{gebied}::{niche.name}"
+        for gebied in campaign.areas
+        for niche in campaign.niches
+    ]
+    vingerafdruk = "|".join(sorted(dekking))
+    gewijzigd = database.get_meta(store, "discover_dekking") != vingerafdruk
+
     openstaand = json.loads(database.get_meta(store, "discover_pending") or "[]")
-    if not openstaand:
+    if gewijzigd:
+        # Een gemeente of branche erbij (of eraf) betekent opnieuw langs alles.
+        # Zonder deze controle zou hij pas over een week merken dat er iets is
+        # veranderd, en tot die tijd dezelfde stad blijven doen.
+        nog_niet_gedaan = [combi for combi in dekking if combi not in set(openstaand)]
+        openstaand = openstaand + nog_niet_gedaan if openstaand else dekking
+        # Alleen combinaties die we nu nog willen.
+        openstaand = [combi for combi in openstaand if combi in set(dekking)]
+        database.set_meta(store, "discover_dekking", vingerafdruk)
+        database.set_meta(store, "discover_pending", json.dumps(openstaand))
+        store.commit()
+        report(f"Zoekgebied gewijzigd: {len(openstaand)} combinaties te doen.")
+    elif not openstaand:
         if not (force or _should_discover(store, settings["discover_every_days"])):
             return 0
-        openstaand = [
-            f"{gebied}::{niche.name}"
-            for gebied in campaign.areas
-            for niche in campaign.niches
-        ]
+        openstaand = list(dekking)
 
     gevonden = 0
     branches = 0

@@ -153,7 +153,15 @@
   .dag.vandaag .naam::after{content:"vandaag";margin-left:9px;font-size:.7rem;letter-spacing:.05em;
     text-transform:uppercase;color:#fff;background:var(--accent);padding:2px 8px;border-radius:999px;
     font-weight:650;vertical-align:1px}
-  .dag .uren{color:var(--ink-2);font-variant-numeric:tabular-nums}
+  .dag .uren{color:var(--ink-2);font-variant-numeric:tabular-nums;text-align:right}
+  .dag .blok{white-space:nowrap}
+  .dag .scheiding{display:inline-block;margin:0 8px;color:var(--muted);font-weight:400}
+  /* Op een smal scherm breekt een tijdvak anders midden in twee. Dan liever
+     de diensten onder elkaar. */
+  @media(max-width:480px){
+    .dag .uren{display:flex;flex-direction:column;align-items:flex-end;gap:2px;white-space:nowrap}
+    .dag .scheiding{display:none}
+  }
   .dag.gesloten .uren{color:var(--muted)}
 
   /* ---- contact ---- */
@@ -360,7 +368,7 @@
       {% for dag in week %}
       <div class="dag{% if dag.gesloten %} gesloten{% endif %}" data-dag="{{ loop.index0 }}">
         <span class="naam">{{ dag.naam }}</span>
-        <span class="uren">{% if dag.gesloten %}Gesloten{% else %}{{ dag.tijden|join(' &nbsp;/&nbsp; ') }}{% endif %}</span>
+        <span class="uren">{% if dag.gesloten %}Gesloten{% else %}{% for blok in dag.tijden %}{% if not loop.first %}<span class="scheiding">/</span>{% endif %}<span class="blok">{{ blok }}</span>{% endfor %}{% endif %}</span>
       </div>
       {% endfor %}
     </div>

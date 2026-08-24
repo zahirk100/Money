@@ -578,6 +578,79 @@ class TestToegang(unittest.TestCase):
         self.assertEqual(gebieden, {"Zwolle", "Kampen"})
         self.assertEqual(len(gezien), len(camp.areas) * len(camp.niches))
 
+    def test_adding_a_town_restarts_the_search(self):
+        """Zonder deze controle bleef hij dezelfde gemeente doen: de wachtrij
+        was leeg en 'klaar met zoeken' gold nog een week."""
+        from leadmachine import pipeline
+
+        gezien = []
+
+        def nep_discover(campaign, source="overpass", only_niche=None, area=None, **rest):
+            gezien.append(area)
+            return iter(())
+
+        camp = campaign()
+        camp.areas = ["Zwolle"]
+        instellingen = {"discover_every_days": 7, "source": "overpass", "backlog_grens": 999}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = database.connect(Path(tmp) / "t.db")
+            echte = pipeline.discover
+            pipeline.discover = nep_discover
+            try:
+                pipeline._discover_step(
+                    camp, store, instellingen, pipeline.Budget(None), lambda _: None, False)
+                self.assertEqual(set(gezien), {"Zwolle"})
+
+                # Niets veranderd: hij blijft rustig.
+                gezien.clear()
+                pipeline._discover_step(
+                    camp, store, instellingen, pipeline.Budget(None), lambda _: None, False)
+                self.assertEqual(gezien, [])
+
+                # Gemeente erbij: die hoort er meteen bij te komen.
+                gezien.clear()
+                camp.areas = ["Zwolle", "Kampen"]
+                pipeline._discover_step(
+                    camp, store, instellingen, pipeline.Budget(None), lambda _: None, False)
+                self.assertIn("Kampen", gezien)
+            finally:
+                pipeline.discover = echte
+            store.close()
+
+    def test_an_old_queue_from_before_the_change_still_finishes(self):
+        """De wachtrij bevatte kale branchenamen zonder gemeente."""
+        from leadmachine import pipeline
+
+        gezien = []
+
+        def nep_discover(campaign, source="overpass", only_niche=None, area=None, **rest):
+            gezien.append((area, only_niche))
+            return iter(())
+
+        camp = campaign()
+        camp.areas = ["Zwolle", "Kampen"]
+        with tempfile.TemporaryDirectory() as tmp:
+            store = database.connect(Path(tmp) / "t.db")
+            database.set_meta(store, "discover_pending", json.dumps(["garage", "hovenier"]))
+            database.set_meta(store, "last_discover", stamp())
+            store.commit()
+
+            echte = pipeline.discover
+            pipeline.discover = nep_discover
+            try:
+                pipeline._discover_step(
+                    camp, store,
+                    {"discover_every_days": 7, "source": "overpass", "backlog_grens": 999},
+                    pipeline.Budget(None), lambda _: None, False,
+                )
+            finally:
+                pipeline.discover = echte
+
+            self.assertEqual({gebied for gebied, _ in gezien}, {"Zwolle", "Kampen"})
+            self.assertEqual(json.loads(database.get_meta(store, "discover_pending")), [])
+            store.close()
+
     def test_an_overpass_outage_does_not_kill_the_cycle(self):
         """Beoordelen en demo's bouwen hebben niets met Overpass te maken; die
         horen door te gaan als het ophalen stukloopt."""
