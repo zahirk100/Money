@@ -27,7 +27,7 @@ from .discover import discover
 from .gemeenten import alle_gemeenten, zoekvolgorde
 from .http import PoliteClient
 from .outreach import Mailer, OutreachError, draft_email, eligible, load_suppression_file
-from .store import Store, now, stamp
+from .store import Store, klok, now, stamp
 
 Reporter = Callable[[str], None]
 
@@ -167,7 +167,7 @@ def _discover_step(
         # zonder tijd erbij laat je op de knop blijven drukken.
         reden = database.get_meta(store, "discover_pauze_reden") or ""
         report(
-            f"Ophalen staat op pauze tot {tot:%H:%M}"
+            f"Ophalen staat op pauze tot {klok(tot)}"
             + (f" - {reden}" if reden else " na een eerdere storing")
             + ". Beoordelen en demo's bouwen gaan wel door."
         )

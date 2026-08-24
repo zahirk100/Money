@@ -115,10 +115,21 @@ De cron staat in `vercel.json` op elke dag 08:00 UTC:
 "crons": [{ "path": "/api/cron", "schedule": "0 8 * * *" }]
 ```
 
-Op het gratis Hobby-plan mag een cron **een keer per dag** draaien. Wil je vaker
-(bijvoorbeeld elk uur, zodat de wachtrij sneller leegloopt), dan heb je een
-Pro-abonnement nodig. Het eindpunt is daarop gebouwd: elke aanroep doet een
-stukje.
+Op het gratis Hobby-plan mag een cron **een keer per dag** draaien. Dat is weinig:
+een beurt doet zes zoekopdrachten, en er staan duizenden combinaties van gemeente
+en branche in de rij. Twee manieren om dat op te lossen:
+
+- **Pro-abonnement bij Vercel** (20 dollar per maand), dan mag je elk uur.
+- **Gratis: een externe wekker.** Maak op een dienst als cron-job.org een taak
+  die elk kwartier `https://jouwproject.vercel.app/api/cron` aanroept, met een
+  header `Authorization: Bearer <jouw CRON_SECRET>`. Het eindpunt is daarop
+  gebouwd: elke aanroep doet een stukje en onthoudt waar hij gebleven was.
+
+Sneller dan elk kwartier heeft geen zin en werkt tegen je: OpenStreetMap's
+Overpass-server houdt bij hoeveel verzoeken er van een adres komen en zet je er
+tijdelijk uit bij te veel achter elkaar. Dat is ook wat er gebeurt als je in het
+dashboard tien keer kort na elkaar op Nu draaien drukt: dan staat er in het log
+"te veel verzoeken achter elkaar (429)" en ligt het ophalen twintig minuten stil.
 
 Alles draait in een functie: het dashboard, de API, de demopagina's en de cron.
 Vercel wil een entrypoint dat het statisch kan vinden, en dat staat in

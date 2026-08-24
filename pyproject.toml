@@ -13,6 +13,9 @@ dependencies = [
     "Jinja2>=3.1",
     "PyYAML>=6.0",
     "psycopg[binary]>=3.1",
+    # Zodat tijden in het dashboard in Nederlandse tijd staan, ook op een
+    # server zonder tijdzonedatabase.
+    "tzdata>=2024.1",
     # Alleen in gebruik als LM_AI_TEKST aanstaat.
     "anthropic>=1,<2",
 ]

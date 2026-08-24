@@ -303,11 +303,14 @@ def _log(message: str) -> None:
         del STATE["log"][:-200]
 
 
-def _run_in_background(campaign: Campaign, target: str | None, trigger: str) -> None:
+def _run_in_background(
+    campaign: Campaign, target: str | None, trigger: str, force_discover: bool = False,
+) -> None:
     def worker() -> None:
         store = open_store(target)
         try:
-            run_cycle(campaign, store, trigger=trigger, report=_log)
+            run_cycle(campaign, store, trigger=trigger, report=_log,
+                      force_discover=force_discover)
         except Exception as exc:  # noqa: BLE001 - fout hoort in het dashboard, niet in een crash
             _log(f"Cyclus afgebroken: {exc}")
         finally:
@@ -581,13 +584,17 @@ def make_handler(
                         counters = run_cycle(
                             campaign, store, trigger="dashboard",
                             budget_seconds=budget, report=meekijken,
+                            # Wie zelf op de knop drukt wil een antwoord, geen
+                            # "staat op pauze". De pauze is er om de cron rustig
+                            # te houden, niet om jou tegen te houden.
+                            force_discover=True,
                         )
                         # De meldingen mee terug: live draait de cyclus binnen
                         # dit ene verzoek, dus achteraf een logje ophalen kan
                         # niet meer. Zonder deze regels zie je alleen nullen.
                         self._json({"klaar": True, "regels": regels, **counters})
                     else:
-                        _run_in_background(campaign, target, "dashboard")
+                        _run_in_background(campaign, target, "dashboard", force_discover=True)
                         self._json({"gestart": True})
                 elif path == "/api/send-now":
                     sent, failed = send_due(campaign, store, live=True, report=_log)

@@ -1004,3 +1004,68 @@ class TestBeurtLog(unittest.TestCase):
         self.assertEqual(len(bewaard), 10)
         # De nieuwste zijn er nog.
         self.assertIn("runlog:39", {r["key"] for r in bewaard})
+
+
+class TestKnopDoorbreektPauze(unittest.TestCase):
+    """Na een storing bij Overpass ligt het ophalen twintig minuten stil. Dat is
+    er voor de cron, niet voor jou: druk je zelf op de knop, dan wil je een
+    antwoord en niet 'staat op pauze'."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.db_path = str(Path(self.tmp.name) / "t.db")
+        self.token = "test-token"
+        self.eerder = {k: os.environ.get(k) for k in ("DASHBOARD_PASSWORD", "LM_HOSTED")}
+        os.environ["DASHBOARD_PASSWORD"] = "geheim"
+        os.environ["LM_HOSTED"] = "1"
+        handler = make_handler(campaign(), self.db_path, self.token)
+        self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        self.base = f"http://127.0.0.1:{self.httpd.server_address[1]}"
+        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
+
+    def tearDown(self):
+        self.httpd.shutdown()
+        self.httpd.server_close()
+        self.tmp.cleanup()
+        for sleutel, waarde in self.eerder.items():
+            if waarde is None:
+                os.environ.pop(sleutel, None)
+            else:
+                os.environ[sleutel] = waarde
+
+    def test_the_button_forces_a_search(self):
+        from leadmachine import dashboard
+
+        gezien = {}
+
+        def nep_cycle(campaign_, store, **kwargs):
+            gezien.update(kwargs)
+            return {"discovered": 0, "audited": 0, "demos": 0, "queued": 0, "sent": 0, "failed": 0}
+
+        opener = urllib.request.build_opener(
+            urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        opener.open(urllib.request.Request(self.base + "/login", data=b"wachtwoord=geheim"), timeout=5)
+
+        with mock.patch.object(dashboard, "run_cycle", side_effect=nep_cycle):
+            request = urllib.request.Request(self.base + "/api/run", method="POST")
+            request.add_header("X-LM-Token", self.token)
+            opener.open(request, timeout=5).read()
+
+        self.assertTrue(gezien.get("force_discover"), "de knop hoort de pauze te negeren")
+
+    def test_a_paused_cycle_names_the_local_time(self):
+        """De database rekent in UTC. Een tijd in een zin hoort te kloppen met
+        de klok op je telefoon, anders lijkt de pauze twee uur geleden voorbij."""
+        from leadmachine.store import klok
+
+        store = database.connect(self.db_path)
+        einde = now() + timedelta(minutes=20)
+        database.set_meta(store, "discover_pauze_tot", stamp(einde))
+        store.commit()
+        run_cycle(campaign(), store, live=False, offline=True)
+        run = database.recent_runs(store, 1)[0]
+        log = database.runlogs(store, [int(run["id"])])[int(run["id"])]
+        store.close()
+
+        self.assertIn(f"op pauze tot {klok(einde)}", log)
+        self.assertNotIn(einde.strftime("%H:%M"), log.split("pauze tot ")[1][:6])

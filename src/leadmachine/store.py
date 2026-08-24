@@ -156,6 +156,25 @@ def now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+# Waar jij naar de klok kijkt. De database blijft UTC - dat is het enige wat
+# optelt en aftrekt zonder gedoe met zomertijd - maar een tijd die de machine
+# zelf in een zin zet, hoort te kloppen met de klok op je telefoon.
+try:
+    from zoneinfo import ZoneInfo
+
+    TIJDZONE = ZoneInfo("Europe/Amsterdam")
+except Exception:  # noqa: BLE001 - zonder tijdzonedatabase is UTC beter dan stuk
+    TIJDZONE = timezone.utc
+
+
+def klok(moment: datetime | None = None) -> str:
+    """Een tijdstip zoals je het zou voorlezen: 23:43."""
+    moment = moment or now()
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return moment.astimezone(TIJDZONE).strftime("%H:%M")
+
+
 def stamp(moment: datetime | None = None) -> str:
     return (moment or now()).strftime("%Y-%m-%d %H:%M:%S")
 
