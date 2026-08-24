@@ -279,6 +279,16 @@ def resolve_target(explicit: str | Path | None = None) -> str:
                     "Session pooler (poort 5432). Die string begint met postgresql:// en "
                     "bevat je databasewachtwoord."
                 )
+            # De directe verbinding van Supabase (host db.<ref>.supabase.co) gaat
+            # alleen over IPv6. Dat is nergens aan de foutmelding te zien, dus
+            # herkennen we het aan de hostnaam voordat er iets misgaat.
+            if "@db." in value and ".supabase.co" in value:
+                raise OpslagOntbreekt(
+                    "Dit is de directe verbinding van Supabase (host db.*.supabase.co). Die "
+                    "werkt alleen over IPv6 en daar kan een hostingplatform meestal niet bij. "
+                    "Kies in het Connect-scherm de Session pooler; die host eindigt op "
+                    "pooler.supabase.com en de gebruikersnaam is postgres.<projectcode>."
+                )
             if is_hosted() and not is_postgres_url(value):
                 raise OpslagOntbreekt(
                     "DATABASE_URL lijkt geen databaseverbinding: een online omgeving heeft "

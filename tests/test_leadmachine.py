@@ -226,6 +226,21 @@ class TestVerbindingsinstelling(unittest.TestCase):
         )
         self.assertIn("YOUR-PASSWORD", melding)
 
+    def test_direct_connection_is_recognised(self):
+        melding = self._fout(
+            "postgresql://postgres:geheim@db.abcdef.supabase.co:5432/postgres", hosted=False
+        )
+        self.assertIn("Session pooler", melding)
+
+    def test_pooler_connection_is_accepted(self):
+        from leadmachine.store import resolve_target
+
+        os.environ["DATABASE_URL"] = (
+            "postgresql://postgres.abcdef:geheim@aws-1-eu-central-1.pooler.supabase.com:5432/postgres"
+        )
+        os.environ["LM_HOSTED"] = "1"
+        self.assertIn("pooler.supabase.com", resolve_target())
+
     def test_file_path_while_hosted(self):
         self.assertIn("postgresql://", self._fout("data/leads.db"))
 
