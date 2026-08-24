@@ -13,6 +13,8 @@ dependencies = [
     "Jinja2>=3.1",
     "PyYAML>=6.0",
     "psycopg[binary]>=3.1",
+    # Alleen in gebruik als LM_AI_TEKST aanstaat.
+    "anthropic>=1,<2",
 ]
 
 [tool.uv]

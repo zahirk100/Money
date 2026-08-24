@@ -18,6 +18,7 @@ import traceback
 from datetime import datetime, timedelta
 from typing import Any, Callable
 
+from . import ai_tekst
 from . import db as database
 from .audit import audit_lead
 from .config import Campaign, load_dotenv
@@ -256,6 +257,10 @@ AUDIT_WORKERS = int(os.environ.get("LM_AUDIT_WORKERS", "6"))
 # over om de gevonden bedrijven ook te beoordelen.
 MAX_ZOEKOPDRACHTEN = int(os.environ.get("LM_ZOEKOPDRACHTEN_PER_BEURT", "6"))
 
+# Hoeveel teksten tegelijk geschreven worden. Dit wacht alleen op de API, dus
+# meer tegelijk kost geen extra rekenkracht bij ons.
+TEKST_WORKERS = int(os.environ.get("LM_TEKST_WORKERS", "5"))
+
 _draad_eigen = threading.local()
 
 
@@ -323,6 +328,82 @@ def _audit_step(
     return gedaan
 
 
+def _demo_doelversie() -> str:
+    """Met AI-teksten aan is een pagina iets anders dan zonder. Door dat in het
+    versienummer te zetten worden bestaande pagina's een keer opnieuw gebouwd
+    zodra je de AI aanzet - en niet elke beurt opnieuw."""
+    if ai_tekst.ingeschakeld():
+        return f"{DEMO_VERSIE}+ai{ai_tekst.TEKST_VERSIE}"
+    return DEMO_VERSIE
+
+
+def _tekst_cache_sleutel(lead_id: int) -> str:
+    return f"aitekst:{lead_id}"
+
+
+def _teksten_ophalen(
+    campaign: Campaign, store: Store, rijen: list[dict[str, Any]],
+    budget: "Budget", report: Any,
+) -> dict[int, dict[str, Any]]:
+    """Per bedrijf een eigen tekst, uit de cache of nieuw geschreven.
+
+    Eenmaal geschreven blijft een tekst staan, ook als het ontwerp verandert:
+    anders betaal je bij elke ontwerpwijziging opnieuw voor dezelfde woorden.
+    """
+    uit: dict[int, dict[str, Any]] = {}
+    if not rijen:
+        return uit
+
+    nodig = []
+    for rij in rijen:
+        bewaard = database.get_meta(store, _tekst_cache_sleutel(rij["id"]))
+        if bewaard:
+            try:
+                pakket = json.loads(bewaard)
+            except ValueError:
+                pakket = {}
+            if pakket.get("versie") == ai_tekst.TEKST_VERSIE and pakket.get("tekst"):
+                uit[rij["id"]] = pakket["tekst"]
+                continue
+        nodig.append(rij)
+
+    if not nodig or not ai_tekst.ingeschakeld():
+        return uit
+
+    def schrijf(rij: dict[str, Any]) -> tuple[int, dict[str, Any] | None]:
+        niche_obj = campaign.niche(rij.get("niche") or "")
+        tags = rij.get("raw") or {}
+        if isinstance(tags, str):
+            try:
+                tags = json.loads(tags)
+            except ValueError:
+                tags = {}
+        wacht = 25.0 if budget.left == float("inf") else max(8.0, budget.left - 12)
+        return rij["id"], ai_tekst.tekst_voor(
+            rij, niche_obj.label if niche_obj else "bedrijf", tags, timeout=wacht
+        )
+
+    report(f"Teksten schrijven voor {len(nodig)} bedrijven...")
+    mislukt = 0
+    with ThreadPoolExecutor(max_workers=TEKST_WORKERS) as pool:
+        for lead_id, tekst in pool.map(schrijf, nodig):
+            if tekst:
+                uit[lead_id] = tekst
+                database.set_meta(store, _tekst_cache_sleutel(lead_id), json.dumps(
+                    {"versie": ai_tekst.TEKST_VERSIE, "model": ai_tekst.model(), "tekst": tekst},
+                    ensure_ascii=False,
+                ))
+            else:
+                mislukt += 1
+    store.commit()
+    if mislukt:
+        report(
+            f"Voor {mislukt} bedrijven lukte het schrijven niet; die pagina's "
+            "krijgen de vaste tekst en worden een volgende beurt opnieuw geprobeerd."
+        )
+    return uit
+
+
 def run_cycle(
     campaign: Campaign,
     store: Store,
@@ -364,29 +445,45 @@ def run_cycle(
 
         # 3. Voorbeeldsites bouwen voor de beste leads die er nog geen hebben.
         # Nog geen demo, of een demo van voor de laatste ontwerpwijziging.
+        doelversie = _demo_doelversie()
         candidates = database.leads_needing_demo(
             store,
             limit=settings["demos_per_run"],
             min_score=settings["min_score"],
-            versie=DEMO_VERSIE,
+            versie=doelversie,
         )
+        # Teksten laten schrijven duurt per bedrijf een paar seconden; naast
+        # elkaar scheelt dat het verschil tussen drie en vijftien pagina's per
+        # beurt. Staat de AI uit, dan gebeurt hier niets.
+        teksten = _teksten_ophalen(campaign, store, candidates, budget, report)
         for row in candidates:
+            eigen_tekst = teksten.get(row["id"])
+            # Een beurt zonder AI-tekst hoort ruim binnen de tijd te passen; met
+            # tekst is het meeste werk al gedaan voordat we hier zijn.
             if not budget.allows(12, counters["demos"]):
                 break
-            slug, html = build_demo(row, campaign)
+            slug, html = build_demo(row, campaign, eigen_tekst)
             path = None
             if _writes_to_disk():
                 from .demo import render_demo
 
-                path = str(render_demo(row, campaign))
+                path = str(render_demo(row, campaign, tekst=eigen_tekst))
             database.record_demo(
                 store, row["id"], slug, path=path, url=demo_url_for(slug),
-                html=html, versie=DEMO_VERSIE,
+                html=html,
+                # Lukte de tekst niet, dan noteren we de pagina als 'gewone'
+                # versie. Dan probeert hij het een volgende beurt opnieuw in
+                # plaats van met een half resultaat te blijven staan.
+                versie=doelversie if (eigen_tekst or not ai_tekst.ingeschakeld()) else DEMO_VERSIE,
             )
             counters["demos"] += 1
         if counters["demos"]:
             store.commit()
-            report(f"{counters['demos']} voorbeeldsites gebouwd.")
+            met_tekst = sum(1 for row in candidates[: counters["demos"]] if teksten.get(row["id"]))
+            report(
+                f"{counters['demos']} voorbeeldsites gebouwd"
+                + (f", waarvan {met_tekst} met eigen tekst." if ai_tekst.ingeschakeld() else ".")
+            )
 
         # 4. Mails opstellen en in de wachtrij zetten.
         wait_hours = 0 if settings["send_mode"] == "auto" else settings["review_hours"]

@@ -676,15 +676,22 @@ def demo_slug(lead: Any) -> str:
     return slugify(f"{get('name')}-{get('osm_id') or get('id') or ''}")
 
 
-def build_demo(lead: Any, campaign: Any) -> tuple[str, str]:
+def build_demo(lead: Any, campaign: Any, tekst: dict[str, Any] | None = None) -> tuple[str, str]:
     """Bouwt de pagina en geeft (slug, html) terug, zonder iets weg te schrijven.
-    Live draait alles zonder schijf, dus het schrijven is een aparte stap."""
-    return demo_slug(lead), _render(lead, campaign)
+    Live draait alles zonder schijf, dus het schrijven is een aparte stap.
+
+    Met `tekst` (zie ai_tekst.py) komen kop, introductie en diensten uit een
+    tekst die voor dit ene bedrijf is geschreven; zonder blijft het de vaste
+    tekst van de branche."""
+    return demo_slug(lead), _render(lead, campaign, tekst)
 
 
-def render_demo(lead: Any, campaign: Any, out_dir: Path | None = None) -> Path:
+def render_demo(
+    lead: Any, campaign: Any, out_dir: Path | None = None,
+    tekst: dict[str, Any] | None = None,
+) -> Path:
     """Bouwt de pagina en zet hem als bestand neer (lokaal gebruik)."""
-    slug, html = build_demo(lead, campaign)
+    slug, html = build_demo(lead, campaign, tekst)
     base = Path(out_dir) if out_dir else OUT_DIR / "demos"
     target = base / slug
     target.mkdir(parents=True, exist_ok=True)
@@ -693,7 +700,7 @@ def render_demo(lead: Any, campaign: Any, out_dir: Path | None = None) -> Path:
     return page
 
 
-def _render(lead: Any, campaign: Any) -> str:
+def _render(lead: Any, campaign: Any, tekst: dict[str, Any] | None = None) -> str:
     get = lead.get if isinstance(lead, dict) else (lambda k, d=None: lead[k] if k in lead.keys() else d)
     naam = get("name")
     niche = get("niche") or ""
@@ -727,6 +734,21 @@ def _render(lead: Any, campaign: Any) -> str:
     tijden = get("opening_hours") or tags.get("opening_hours") or ""
     week = parse_opening_hours(tijden)
 
+    # Diensten uit een geschreven tekst hebben geen pictogram; die lenen we van
+    # de vaste diensten van de branche, zodat de rij er hetzelfde uitziet.
+    vaste_diensten = DIENSTEN.get(niche, STANDAARD_DIENSTEN)
+    if tekst and tekst.get("diensten"):
+        diensten = [
+            {
+                "titel": eigen["titel"],
+                "tekst": eigen["tekst"],
+                "icoon": vaste_diensten[i]["icoon"] if i < len(vaste_diensten) else "vink",
+            }
+            for i, eigen in enumerate(tekst["diensten"])
+        ]
+    else:
+        diensten = vaste_diensten
+
     return template.render(
         lead={
             "naam": naam, "stad": stad, "postcode": get("postcode"),
@@ -734,14 +756,14 @@ def _render(lead: Any, campaign: Any) -> str:
         },
         niche_label=niche_label,
         thema=thema_van(niche),
-        kop=_kop(niche, niche_label, stad),
-        onderkop=ONDERKOPPEN.get(niche, STANDAARD_ONDERKOP),
-        intro=_intro(naam, niche_label, stad, tags),
+        kop=(tekst or {}).get("kop") or _kop(niche, niche_label, stad),
+        onderkop=(tekst or {}).get("onderkop") or ONDERKOPPEN.get(niche, STANDAARD_ONDERKOP),
+        intro=(tekst or {}).get("intro") or _intro(naam, niche_label, stad, tags),
         meta_omschrijving=(
             f"{naam} - {niche_label}{' in ' + stad if stad else ''}. "
             "Openingstijden, diensten en contactgegevens op een rij."
         ),
-        diensten=DIENSTEN.get(niche, STANDAARD_DIENSTEN),
+        diensten=diensten,
         iconen=ICONEN,
         week=week,
         openingstijden_tekst=tijden,

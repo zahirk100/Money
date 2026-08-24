@@ -18,6 +18,7 @@ import urllib.request
 from datetime import datetime, timedelta
 from http.server import ThreadingHTTPServer
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -881,3 +882,77 @@ class TestToegang(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class TestAiTekstInDeCyclus(unittest.TestCase):
+    """De AI-tekst is optioneel. Staat hij aan, dan mag hij per bedrijf hoogstens
+    een keer geld kosten; gaat hij stuk, dan draait de rest gewoon door."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.store = database.connect(Path(self.tmp.name) / "t.db")
+
+    def tearDown(self):
+        self.store.close()
+        self.tmp.cleanup()
+
+    TEKST = {
+        "kop": "Zelf gebakken, elke dag",
+        "onderkop": "Uit onze eigen oven",
+        "intro": "Wij bakken alles zelf. Loop gerust binnen.",
+        "diensten": [
+            {"titel": "Desembrood", "tekst": "Twee dagen rijzen."},
+            {"titel": "Taart", "tekst": "Op bestelling."},
+            {"titel": "Broodjes", "tekst": "Vanaf zeven uur."},
+        ],
+    }
+
+    def test_off_by_default(self):
+        from leadmachine.demo import DEMO_VERSIE
+
+        run_cycle(campaign(), self.store, live=False, offline=True)
+        versies = {r["versie"] for r in self.store.execute("SELECT versie FROM demos")}
+        self.assertEqual(versies, {DEMO_VERSIE})
+
+    def test_each_business_is_written_once_and_then_reused(self):
+        from leadmachine import ai_tekst
+        from leadmachine.demo import DEMO_VERSIE
+
+        aanroepen = []
+
+        def nep(lead, label, tags, timeout=25.0):
+            aanroepen.append(lead["id"])
+            return dict(self.TEKST)
+
+        with mock.patch.object(ai_tekst, "ingeschakeld", return_value=True), \
+                mock.patch.object(ai_tekst, "tekst_voor", side_effect=nep):
+            run_cycle(campaign(), self.store, live=False, offline=True)
+            eerste = len(aanroepen)
+            self.assertGreater(eerste, 0)
+
+            demo = self.store.one("SELECT versie, html FROM demos LIMIT 1")
+            self.assertEqual(demo["versie"], f"{DEMO_VERSIE}+ai{ai_tekst.TEKST_VERSIE}")
+            self.assertIn("Zelf gebakken, elke dag", demo["html"])
+
+            # Ontwerp gewijzigd: de pagina's worden opnieuw gebouwd, maar de
+            # tekst komt uit de cache en kost dus niets extra.
+            self.store.execute("UPDATE demos SET versie = ?", ("oud",))
+            self.store.commit()
+            run_cycle(campaign(), self.store, live=False, offline=True)
+            self.assertEqual(len(aanroepen), eerste, "tweede keer betaald voor dezelfde tekst")
+
+    def test_a_failed_text_still_gives_a_page_and_is_retried(self):
+        from leadmachine import ai_tekst
+        from leadmachine.demo import DEMO_VERSIE
+
+        with mock.patch.object(ai_tekst, "ingeschakeld", return_value=True), \
+                mock.patch.object(ai_tekst, "tekst_voor", return_value=None):
+            counters = run_cycle(campaign(), self.store, live=False, offline=True)
+
+        self.assertGreater(counters["demos"], 0)
+        versies = {r["versie"] for r in self.store.execute("SELECT versie FROM demos")}
+        # Gemarkeerd als gewone versie, dus een volgende beurt probeert hij het
+        # opnieuw in plaats van met de vaste tekst te blijven staan.
+        self.assertEqual(versies, {DEMO_VERSIE})
+        html = self.store.one("SELECT html FROM demos LIMIT 1")["html"]
+        self.assertIn("Waar we voor klaarstaan", html)

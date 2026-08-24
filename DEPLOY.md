@@ -76,6 +76,9 @@ om dat uit te sparen.
 | `LM_SENDER_NAME`, `LM_SENDER_EMAIL`, `LM_COMPANY_NAME`, `LM_COMPANY_ADDRESS`, `LM_KVK`, `LM_PHONE` | je afzendergegevens | om te mailen |
 | `LM_AREA` | `auto` (zelf gemeenten kiezen) of eigen gemeenten met komma's | nee |
 | `LM_ENABLED` | `false` om te beginnen | nee |
+| `ANTHROPIC_API_KEY` | sleutel van console.anthropic.com | alleen voor eigen teksten |
+| `LM_AI_TEKST` | `true` om per bedrijf een eigen tekst te laten schrijven | nee |
+| `LM_AI_MODEL` | ander model, bijv. `claude-haiku-4-5-20251001` | nee |
 
    Drie geheimen genereren:
 
@@ -127,6 +130,30 @@ entrypoint = "api.index:handler"
 ```
 
 Zet daarna `LM_ENABLED=true`. Pas dan gaat er echt mail de deur uit.
+
+## Teksten per bedrijf laten schrijven (optioneel)
+
+Zonder deze stap krijgt elk bedrijf de vaste tekst van zijn branche: een
+bakkerij krijgt bakkerstekst, een garage garagetekst. Dat leest prima, maar
+twee bakkers in dezelfde straat krijgen wel dezelfde woorden.
+
+Zet je `ANTHROPIC_API_KEY` en `LM_AI_TEKST=true`, dan schrijft Claude per
+bedrijf een eigen kop, introductie en drie diensten op basis van wat er in
+OpenStreetMap over dat bedrijf staat - het soort keuken, de openingstijden, de
+omschrijving die de eigenaar zelf heeft achtergelaten.
+
+Wat het kost: ongeveer een cent per bedrijf met het standaardmodel
+(`claude-opus-5`), en ongeveer een vijfde daarvan met
+`LM_AI_MODEL=claude-haiku-4-5-20251001`. Per bedrijf wordt er hoogstens een
+keer betaald: de tekst wordt bewaard en hergebruikt, ook als het ontwerp later
+verandert.
+
+Wat het niet doet: het ontwerp raakt het niet aan, en het model mag geen feiten
+verzinnen. Geen jaartallen, geen aantallen klanten, geen recensies, geen
+keurmerken - alleen wat er in de gegevens staat. Komt er iets terug dat niet
+klopt van vorm, dan gebruikt de pagina gewoon de vaste tekst.
+
+Zet je het aan, dan worden bestaande voorbeeldsites een keer opnieuw gebouwd.
 
 Zelf een cyclus starten zonder te wachten:
 
