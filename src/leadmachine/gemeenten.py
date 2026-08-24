@@ -11,8 +11,9 @@ bedrijven op, maar juist in kleinere zitten vaak de ondernemers zonder website.
 
 from __future__ import annotations
 
-GEMEENTEN: list[str] = [
-    # Grote steden
+import random
+
+GROTE_GEMEENTEN: list[str] = [
     "Amsterdam", "Rotterdam", "Den Haag", "Utrecht", "Eindhoven", "Groningen",
     "Tilburg", "Almere", "Breda", "Nijmegen", "Apeldoorn", "Arnhem", "Haarlem",
     "Haarlemmermeer", "Amersfoort", "Enschede", "Zaanstad", "'s-Hertogenbosch",
@@ -22,7 +23,9 @@ GEMEENTEN: list[str] = [
     "Amstelveen", "Súdwest-Fryslân", "Roosendaal", "Purmerend", "Schiedam",
     "Lelystad", "Almelo", "Hoorn", "Gouda", "Vlaardingen", "Assen", "Bergen op Zoom",
     "Capelle aan den IJssel", "Veenendaal", "Katwijk", "Zeist", "Nissewaard",
-    # Middelgroot
+]
+
+MIDDELGROTE_GEMEENTEN: list[str] = [
     "Hardenberg", "Oosterhout", "Hengelo", "Doetinchem", "Vlissingen", "Terneuzen",
     "Kampen", "Barneveld", "Woerden", "Rijswijk", "Ridderkerk", "Roermond",
     "Weert", "Sittard-Geleen", "Kerkrade", "Uden", "Veghel", "Waalwijk",
@@ -32,7 +35,11 @@ GEMEENTEN: list[str] = [
     "Dalfsen", "Ommen", "Staphorst", "Steenwijkerland", "Meppel", "Hoogeveen",
     "Coevorden", "Emmen", "Borger-Odoorn", "Aa en Hunze", "Tynaarlo", "Noordenveld",
     "Westerkwartier", "Midden-Groningen", "Veendam", "Stadskanaal", "Oldambt",
-    # Kleiner, vaak juist kansrijk
+]
+
+# Kleiner, vaak juist kansrijk: hier zit de ondernemer die het nooit
+# geregeld heeft, maar er staan er ook minder van in OpenStreetMap.
+KLEINE_GEMEENTEN: list[str] = [
     "Heerenveen", "Smallingerland", "Opsterland", "Ooststellingwerf",
     "Weststellingwerf", "De Fryske Marren", "Harlingen", "Waadhoeke",
     "Noardeast-Fryslân", "Dantumadiel", "Achtkarspelen", "Tytsjerksteradiel",
@@ -48,6 +55,9 @@ GEMEENTEN: list[str] = [
 ]
 
 
+GEMEENTEN: list[str] = GROTE_GEMEENTEN + MIDDELGROTE_GEMEENTEN + KLEINE_GEMEENTEN
+
+
 def alle_gemeenten() -> list[str]:
     """Zonder dubbelen, in dezelfde volgorde."""
     gezien: set[str] = set()
@@ -57,3 +67,47 @@ def alle_gemeenten() -> list[str]:
             gezien.add(naam)
             uniek.append(naam)
     return uniek
+
+
+def _ontdubbel(namen: list[str]) -> list[str]:
+    gezien: set[str] = set()
+    uniek: list[str] = []
+    for naam in namen:
+        if naam not in gezien:
+            gezien.add(naam)
+            uniek.append(naam)
+    return uniek
+
+
+def zoekvolgorde(niche_namen: list[str], door_elkaar: bool = True) -> list[str]:
+    """Alle combinaties van gemeente en branche, in de volgorde waarin we ze
+    afwerken.
+
+    Puur loten klinkt eerlijk, maar levert weinig op: verreweg de meeste
+    Nederlandse gemeenten zijn klein, dus een willekeurige greep is bijna altijd
+    een dorp waar van een branche hooguit een of twee bedrijven in
+    OpenStreetMap staan. Dan lijkt het alsof de machine niets vindt.
+
+    Daarom mengen we: twee opdrachten in een grote of middelgrote gemeente,
+    daarna een in een kleine. Binnen elke groep is de volgorde wel willekeurig,
+    zodat twee keer starten niet twee keer dezelfde lijst geeft.
+    """
+    groot = _ontdubbel(GROTE_GEMEENTEN + MIDDELGROTE_GEMEENTEN)
+    klein = [naam for naam in _ontdubbel(KLEINE_GEMEENTEN) if naam not in set(groot)]
+    dicht = [f"{g}::{n}" for g in groot for n in niche_namen]
+    dun = [f"{g}::{n}" for g in klein for n in niche_namen]
+    if door_elkaar:
+        random.shuffle(dicht)
+        random.shuffle(dun)
+
+    volgorde: list[str] = []
+    i = j = 0
+    while i < len(dicht) or j < len(dun):
+        for _ in range(2):
+            if i < len(dicht):
+                volgorde.append(dicht[i])
+                i += 1
+        if j < len(dun):
+            volgorde.append(dun[j])
+            j += 1
+    return volgorde

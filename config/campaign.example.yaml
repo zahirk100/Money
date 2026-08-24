@@ -17,30 +17,150 @@ region:
   # Controleer een naam via https://nominatim.openstreetmap.org
   admin_level: 8
 
-# Elke niche is een groep OSM-tags. Kies branches waar een website direct
-# omzet oplevert (mensen zoeken erop) en waar de eigenaar zelf geen tijd heeft.
+# Elke niche is een groep OSM-tags en levert per gemeente een eigen
+# zoekopdracht op. Meer branches betekent meer kans dat een gemeente iets
+# oplevert: een hovenier staat in een dorp van 8.000 inwoners vaak niet in
+# OpenStreetMap, een bakker, kapper of cafe bijna altijd wel.
+#
+# De keuze is niet willekeurig. Het zijn branches waar (a) mensen online naar
+# zoeken voordat ze bellen, (b) de ondernemer zelf geen tijd heeft om een site
+# te bouwen, en (c) OpenStreetMap in Nederland goed gevuld is.
 niches:
+  # --- Persoonlijke verzorging ---
   - name: kapper
     label: kapsalon
     filters: ["shop=hairdresser"]
   - name: schoonheidssalon
     label: schoonheidssalon
     filters: ["shop=beauty", "shop=massage"]
+  - name: tattoo
+    label: tattooshop
+    filters: ["shop=tattoo"]
+
+  # --- Bouw en techniek ---
   - name: aannemer
     label: aannemersbedrijf
     filters: ["craft=builder", "office=construction_company", "craft=carpenter"]
   - name: installateur
     label: installatiebedrijf
     filters: ["craft=plumber", "craft=electrician", "craft=hvac"]
+  - name: schilder
+    label: schildersbedrijf
+    filters: ["craft=painter", "craft=plasterer"]
+  - name: dakdekker
+    label: dakdekkersbedrijf
+    filters: ["craft=roofer", "craft=insulation", "craft=scaffolder"]
+  - name: kozijnen
+    label: kozijnen- en zonweringbedrijf
+    filters: ["craft=window_construction", "craft=glaziery", "shop=window_blind"]
+  - name: meubelmaker
+    label: meubelmakerij
+    filters: ["craft=cabinet_maker", "shop=furniture", "shop=flooring"]
+
+  # --- Auto en fiets ---
   - name: garage
     label: autobedrijf
-    filters: ["shop=car_repair"]
+    filters: ["shop=car_repair", "shop=tyres"]
+  - name: autohandel
+    label: autobedrijf
+    filters: ["shop=car", "shop=car_parts"]
+  - name: fietsenmaker
+    label: fietsenzaak
+    filters: ["shop=bicycle", "shop=motorcycle_repair"]
+  - name: rijschool
+    label: rijschool
+    filters: ["amenity=driving_school"]
+
+  # --- Groen ---
   - name: hovenier
     label: hoveniersbedrijf
     filters: ["craft=gardener", "shop=garden_centre"]
+
+  # --- Horeca ---
   - name: restaurant
     label: restaurant
-    filters: ["amenity=restaurant", "amenity=cafe"]
+    filters: ["amenity=restaurant"]
+  - name: cafe
+    label: cafe
+    filters: ["amenity=cafe", "amenity=bar", "amenity=pub"]
+  - name: snackbar
+    label: cafetaria
+    filters: ["amenity=fast_food", "amenity=ice_cream"]
+  - name: catering
+    label: cateringbedrijf
+    filters: ["craft=caterer"]
+  - name: hotel
+    label: hotel
+    filters: ["tourism=hotel", "tourism=guest_house", "tourism=chalet"]
+
+  # --- Winkels met vakmanschap ---
+  - name: bakker
+    label: bakkerij
+    filters: ["shop=bakery", "shop=pastry", "shop=chocolate"]
+  - name: slager
+    label: slagerij
+    filters: ["shop=butcher"]
+  - name: delicatessen
+    label: speciaalzaak
+    filters: ["shop=deli", "shop=cheese", "shop=greengrocer", "shop=seafood"]
+  - name: bloemist
+    label: bloemenzaak
+    filters: ["shop=florist"]
+  - name: slijterij
+    label: slijterij
+    filters: ["shop=alcohol", "shop=beverages"]
+  - name: kleding
+    label: kledingzaak
+    filters: ["shop=clothes", "shop=boutique", "shop=shoes"]
+  - name: juwelier
+    label: juwelier
+    filters: ["shop=jewelry", "shop=watches"]
+  - name: opticien
+    label: opticien
+    filters: ["shop=optician", "shop=hearing_aids"]
+  - name: computerzaak
+    label: computer- en telefoonzaak
+    filters: ["shop=computer", "shop=mobile_phone", "shop=electronics"]
+  - name: keuken
+    label: keuken- en interieurzaak
+    filters: ["shop=kitchen", "shop=bathroom_furnishing", "shop=interior_decoration"]
+  - name: dierenwinkel
+    label: dierenspeciaalzaak
+    filters: ["shop=pet", "shop=pet_grooming"]
+
+  # --- Zorg ---
+  - name: tandarts
+    label: tandartspraktijk
+    filters: ["amenity=dentist"]
+  - name: fysiotherapeut
+    label: fysiotherapiepraktijk
+    filters: ["healthcare=physiotherapist", "healthcare=podiatrist"]
+  - name: dierenarts
+    label: dierenartsenpraktijk
+    filters: ["amenity=veterinary"]
+
+  # --- Diensten aan huis en kantoor ---
+  - name: makelaar
+    label: makelaarskantoor
+    filters: ["office=estate_agent"]
+  - name: boekhouder
+    label: administratiekantoor
+    filters: ["office=accountant", "office=tax_advisor", "office=financial_advisor"]
+  - name: fotograaf
+    label: fotograaf
+    filters: ["craft=photographer", "shop=photo"]
+  - name: stomerij
+    label: stomerij
+    filters: ["shop=dry_cleaning", "shop=laundry"]
+  - name: uitvaart
+    label: uitvaartonderneming
+    filters: ["shop=funeral_directors"]
+  - name: sportschool
+    label: sportschool
+    filters: ["leisure=fitness_centre"]
+  - name: reisbureau
+    label: reisbureau
+    filters: ["shop=travel_agency"]
 
 audit:
   timeout_seconds: 12

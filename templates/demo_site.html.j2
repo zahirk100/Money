@@ -219,6 +219,8 @@
   .slot h2{color:#fff;font-size:clamp(1.6rem,4vw,2.5rem);letter-spacing:-.03em;margin:0 0 10px;
            font-weight:700;position:relative}
   .slot p{color:rgba(255,255,255,.86);margin:0 auto 28px;max-width:46ch;position:relative}
+  .slot .kicker{color:rgba(255,255,255,.72);font-size:.78rem;font-weight:700;letter-spacing:.14em;
+    text-transform:uppercase;margin:0 0 12px}
   .slot .knop{background:#fff;color:var(--ink);position:relative}
   .slot .knop.stil{background:rgba(255,255,255,.14);color:#fff;border-color:rgba(255,255,255,.32)}
 
@@ -365,8 +367,7 @@
 <section id="diensten">
   <div class="wrap">
     <h2 class="titel op">Waar we voor klaarstaan</h2>
-    <p class="onder op">{{ thema.sfeer }}. Een vaste plek waar klanten zien wat u doet,
-      in plaats van dat ze het moeten vragen.</p>
+    <p class="onder op">{{ onderkop }}</p>
     <div class="drie">
       {% for dienst in diensten %}
       <div class="dienst op">
@@ -478,6 +479,7 @@
 <section>
   <div class="wrap">
     <div class="slot op">
+      <p class="kicker">{{ thema.sfeer }}</p>
       <h2>{% if lead.telefoon %}Even bellen is het snelst{% else %}Neem gerust contact op{% endif %}</h2>
       <p>{% if week %}Kijk hierboven wanneer we open zijn, en bel gerust.{% else %}
         We horen graag waar we mee kunnen helpen.{% endif %}</p>

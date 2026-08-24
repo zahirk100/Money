@@ -139,6 +139,33 @@ FEITEN: dict[str, tuple[str, str]] = {
     "service:vehicle:body_repair=yes": ("Schadeherstel", "schild"),
     "service:vehicle:new_car_sales=yes": ("Verkoop nieuw", "auto"),
     "service:vehicle:used_car_sales=yes": ("Verkoop occasions", "auto"),
+    # Winkels en praktijken
+    "self_service=yes": ("Zelfbediening", "hand"),
+    "wholesale=yes": ("Ook groothandel", "doos"),
+    "repair=yes": ("Reparatie mogelijk", "moersleutel"),
+    "service:bicycle:repair=yes": ("Fietsreparatie", "fiets"),
+    "service:bicycle:pump=yes": ("Gratis oppompen", "fiets"),
+    "service:bicycle:retail=yes": ("Verkoop fietsen", "fiets"),
+    "service:bicycle:second_hand=yes": ("Tweedehands fietsen", "kringloop"),
+    "rental=yes": ("Verhuur mogelijk", "sleutel"),
+    "dog=yes": ("Hond welkom", "poot"),
+    "changing_table=yes": ("Verschoontafel", "hart"),
+    "toilets:wheelchair=yes": ("Aangepast toilet", "toegankelijk"),
+    "wifi=free": ("Gratis wifi", "wifi"),
+    "appointment=required": ("Op afspraak", "agenda"),
+    "healthcare=physiotherapist": ("Fysiotherapie", "hart"),
+    "emergency=yes": ("Ook bij spoed", "telefoon"),
+    "beauty=nails": ("Nagelstyling", "hand"),
+    "beauty=tanning": ("Zonnebank", "zon"),
+    "massage=yes": ("Massage", "hand"),
+    "shoe_repair=yes": ("Schoenreparatie", "hamer"),
+    "tailor=yes": ("Kleding vermaken", "schaar"),
+    "key_cutting=yes": ("Sleutels bijmaken", "sleutel"),
+    "photo=yes": ("Pasfoto's", "camera"),
+    "delivery=only": ("Alleen bezorging", "bezorgen"),
+    "stars=3": ("3 sterren", "vlag"),
+    "stars=4": ("4 sterren", "vlag"),
+    "breakfast=yes": ("Inclusief ontbijt", "kop"),
 }
 
 KEUKENS = {
@@ -149,6 +176,18 @@ KEUKENS = {
     "seafood": "Vis en zeevruchten", "steak_house": "Steakhouse", "vegetarian": "Vegetarisch",
     "asian": "Aziatisch", "indonesian": "Indonesisch", "surinamese": "Surinaams",
     "coffee_shop": "Koffie", "sandwich": "Broodjes", "ice_cream": "IJs", "cafe": "Cafe",
+    "bread": "Brood", "bakery": "Bakkerij", "cake": "Taart en gebak", "pastry": "Gebak",
+    "chocolate": "Chocolade", "friture": "Frituur", "fries": "Friet", "snack": "Snacks",
+    "chicken": "Kip", "fish": "Vis", "fish_and_chips": "Vis en friet", "shawarma": "Shoarma",
+    "pancake": "Pannenkoeken", "poffertjes": "Poffertjes", "waffle": "Wafels",
+    "regional": "Streekgerechten", "international": "Internationaal", "german": "Duits",
+    "portuguese": "Portugees", "vietnamese": "Vietnamees", "korean": "Koreaans",
+    "lebanese": "Libanees", "moroccan": "Marokkaans", "american": "Amerikaans",
+    "barbecue": "Barbecue", "tapas": "Tapas", "pasta": "Pasta", "noodle": "Noedels",
+    "ramen": "Ramen", "soup": "Soep", "salad": "Salades", "sausage": "Worst",
+    "breakfast": "Ontbijt", "brunch": "Brunch", "lunch": "Lunch", "deli": "Delicatessen",
+    "juice": "Vers sap", "tea": "Thee", "wine": "Wijn", "beer": "Bier",
+    "curry": "Curry", "steak": "Steak", "grill": "Grill", "italian_pizza": "Pizza",
 }
 
 
@@ -157,12 +196,11 @@ def feiten_uit_tags(tags: dict[str, Any]) -> list[dict[str, str]]:
     gevonden: list[dict[str, str]] = []
     gezien: set[str] = set()
 
+    # Alleen tonen wat we ook echt in het Nederlands kunnen zeggen. Een chip met
+    # "Bread" of "Fine_dining" erop verraadt direct dat er een machine achter zit.
     keuken = (tags.get("cuisine") or "").split(";")[0].strip().lower()
-    if keuken:
-        gevonden.append({
-            "tekst": KEUKENS.get(keuken, keuken.replace("_", " ").capitalize()),
-            "icoon": "bord",
-        })
+    if keuken in KEUKENS:
+        gevonden.append({"tekst": KEUKENS[keuken], "icoon": "bord"})
 
     for sleutel, (label, icoon) in FEITEN.items():
         naam, _, waarde = sleutel.partition("=")

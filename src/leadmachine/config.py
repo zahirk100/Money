@@ -68,9 +68,12 @@ class Campaign:
     def zoekgebied(self) -> str:
         """Een gemeente waarin echt gezocht kan worden."""
         if self.automatisch:
-            from .gemeenten import alle_gemeenten
+            # Een losse zoekopdracht (buiten de cyclus om) mag niet in een dorp
+            # van 6.000 inwoners uitkomen: dan lijkt het alsof er niets te
+            # vinden is. De cyclus zelf werkt wel alle gemeenten af.
+            from .gemeenten import GROTE_GEMEENTEN, MIDDELGROTE_GEMEENTEN
 
-            return random.choice(alle_gemeenten())
+            return random.choice(GROTE_GEMEENTEN + MIDDELGROTE_GEMEENTEN)
         return self.areas[0]
 
     def niche(self, name: str) -> Niche | None:

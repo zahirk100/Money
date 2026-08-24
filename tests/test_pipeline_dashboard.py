@@ -29,6 +29,12 @@ from leadmachine.store import now, stamp  # noqa: E402  # noqa: E402
 
 EXAMPLE_CONFIG = Path(__file__).resolve().parents[1] / "config" / "campaign.example.yaml"
 
+# De branches waarvan data/fixtures/sample_osm.json bedrijven bevat.
+FIXTURE_BRANCHES = (
+    "kapper", "schoonheidssalon", "aannemer", "installateur", "garage", "hovenier",
+    "restaurant",
+)
+
 
 def campaign(**overrides):
     camp = load_campaign(EXAMPLE_CONFIG)
@@ -37,6 +43,11 @@ def campaign(**overrides):
     # Tests draaien op een vast gebied. De voorbeeldconfig staat op "auto", en
     # dan zou elke test langs 167 gemeenten willen: traag en onvoorspelbaar.
     camp.areas = ["Zwolle"]
+    # En op de branches die ook echt in de fixture zitten. De echte config kent
+    # er tientallen; die allemaal meenemen maakt de uitkomst afhankelijk van
+    # welke branche toevallig vooraan in de rij staat, terwijl deze tests over
+    # de cyclus gaan en niet over de brancheslijst.
+    camp.niches = [n for n in camp.niches if n.name in FIXTURE_BRANCHES]
     return camp
 
 
@@ -150,6 +161,35 @@ class TestDemoVernieuwing(unittest.TestCase):
 
             # En daarna weer rustig blijven.
             self.assertEqual(run_cycle(campaign(), store, live=False, offline=True)["demos"], 0)
+            store.close()
+
+    def test_new_leads_get_a_demo_even_with_a_long_list_before_them(self):
+        """Bedrijven zonder website krijgen allemaal dezelfde score. Werd de
+        keuze op een top-N gemaakt, dan zat die top-N na een paar honderd leads
+        vol met bedrijven die hun pagina al hadden en kwam er nooit meer een
+        nieuwe aan de beurt."""
+        from leadmachine.demo import DEMO_VERSIE
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = database.connect(Path(tmp) / "t.db")
+            for i in range(200):
+                lead_id, _ = database.upsert_lead(store, {
+                    "osm_type": "node", "osm_id": str(9000 + i), "name": f"Bedrijf {i}",
+                    "niche": "kapper", "city": "Zwolle", "source": "test",
+                })
+                database.save_audit(store, lead_id, {
+                    "score": 55, "segment": "hot", "findings": [], "reachable": 0,
+                })
+                # De eerste 180 hebben hun pagina al.
+                if i < 180:
+                    database.record_demo(store, lead_id, f"bedrijf-{i}", versie=DEMO_VERSIE)
+            store.commit()
+
+            wachtenden = database.leads_needing_demo(
+                store, limit=25, min_score=45, versie=DEMO_VERSIE
+            )
+            self.assertEqual(len(wachtenden), 20)
+            self.assertTrue(all(row.get("demo_slug") is None for row in wachtenden))
             store.close()
 
 

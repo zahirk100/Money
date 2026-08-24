@@ -212,6 +212,34 @@ def ranked_leads(
     return store.execute("\n".join(sql), params)
 
 
+def leads_needing_demo(
+    store: Store, limit: int, min_score: int, versie: str,
+) -> list[dict[str, Any]]:
+    """Bedrijven die goed genoeg scoren maar nog geen actuele voorbeeldsite hebben.
+
+    Dit moet in de database gebeuren en niet achteraf in Python. Alle bedrijven
+    zonder website krijgen dezelfde score, dus zodra er een paar honderd van in
+    de lijst staan, zit een top-100 vol met bedrijven die hun demo al hebben en
+    komt er nooit meer een nieuwe aan de beurt. Precies het beeld van 'hij bouwt
+    bijna nooit meer een demo'.
+    """
+    return store.execute(
+        "SELECT l.*, a.score, a.segment, a.findings, a.final_url, a.reachable,\n"
+        "       d.path AS demo_path, d.url AS demo_url, d.slug AS demo_slug,\n"
+        "       d.versie AS demo_versie\n"
+        "FROM leads l\n"
+        "JOIN audits a ON a.lead_id = l.id\n"
+        "LEFT JOIN demos d ON d.lead_id = l.id\n"
+        "WHERE a.score >= ?\n"
+        "  AND (d.slug IS NULL OR d.versie IS NULL OR d.versie <> ?)\n"
+        # Nieuwste eerst: wie net binnenkomt heeft nog geen pagina, en zo blijft
+        # de machine ook zichtbaar bezig na een verse zoekronde.
+        "ORDER BY a.score DESC, l.id DESC\n"
+        f"LIMIT {int(limit)}",
+        (min_score, versie),
+    )
+
+
 # -- demo's ----------------------------------------------------------------
 def record_demo(
     store: Store, lead_id: int, slug: str,

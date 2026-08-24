@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import json
 import os
-import random
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -24,7 +23,7 @@ from .audit import audit_lead
 from .config import Campaign, load_dotenv
 from .demo import DEMO_VERSIE, build_demo
 from .discover import discover
-from .gemeenten import alle_gemeenten
+from .gemeenten import alle_gemeenten, zoekvolgorde
 from .http import PoliteClient
 from .outreach import Mailer, OutreachError, draft_email, eligible, load_suppression_file
 from .store import Store, now, stamp
@@ -166,8 +165,7 @@ def _discover_step(
         # De volgorde ligt vast zodra hij is bepaald, zodat een volgende
         # aanroep verdergaat in plaats van opnieuw te loten.
         gemeenten = alle_gemeenten()
-        dekking = [f"{gebied}::{niche.name}" for gebied in gemeenten for niche in campaign.niches]
-        random.shuffle(dekking)
+        dekking = zoekvolgorde([niche.name for niche in campaign.niches])
         vingerafdruk = f"auto:{len(gemeenten)}x{len(campaign.niches)}"
     else:
         dekking = [
@@ -366,11 +364,12 @@ def run_cycle(
 
         # 3. Voorbeeldsites bouwen voor de beste leads die er nog geen hebben.
         # Nog geen demo, of een demo van voor de laatste ontwerpwijziging.
-        candidates = [
-            row for row in database.ranked_leads(store, limit=settings["demos_per_run"] * 4)
-            if (row["score"] or 0) >= settings["min_score"]
-            and (not row.get("demo_slug") or row.get("demo_versie") != DEMO_VERSIE)
-        ][: settings["demos_per_run"]]
+        candidates = database.leads_needing_demo(
+            store,
+            limit=settings["demos_per_run"],
+            min_score=settings["min_score"],
+            versie=DEMO_VERSIE,
+        )
         for row in candidates:
             if not budget.allows(12, counters["demos"]):
                 break
