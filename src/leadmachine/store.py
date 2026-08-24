@@ -60,6 +60,7 @@ CREATE TABLE IF NOT EXISTS demos (
     path       TEXT,
     url        TEXT,
     html       TEXT,
+    versie     TEXT,
     created_at TEXT,
     UNIQUE (lead_id)
 );
@@ -120,6 +121,7 @@ CREATE TABLE IF NOT EXISTS demos (
     path       TEXT,
     url        TEXT,
     html       TEXT,
+    versie     TEXT,
     created_at TIMESTAMPTZ,
     UNIQUE (lead_id)
 );
@@ -330,9 +332,10 @@ def open_store(target: str | Path | None = None, migrate: bool = True) -> Store:
 
 LATER_COLUMNS = {
     "outreach_log": {"send_after": "TEXT", "sent_at": "TEXT"},
-    "demos": {"slug": "TEXT", "html": "TEXT"},
+    "demos": {"slug": "TEXT", "html": "TEXT", "versie": "TEXT"},
 }
-PG_TYPES = {"send_after": "TIMESTAMPTZ", "sent_at": "TIMESTAMPTZ", "slug": "TEXT", "html": "TEXT"}
+PG_TYPES = {"send_after": "TIMESTAMPTZ", "sent_at": "TIMESTAMPTZ", "slug": "TEXT",
+            "html": "TEXT", "versie": "TEXT"}
 
 
 def _columns(store: Store, table: str) -> set[str]:

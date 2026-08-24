@@ -21,7 +21,7 @@ from typing import Any, Callable
 from . import db as database
 from .audit import audit_lead
 from .config import Campaign, load_dotenv
-from .demo import build_demo
+from .demo import DEMO_VERSIE, build_demo
 from .discover import discover
 from .http import PoliteClient
 from .outreach import Mailer, OutreachError, draft_email, eligible, load_suppression_file
@@ -246,9 +246,11 @@ def run_cycle(
             counters["audited"] = _audit_step(campaign, store, todo, budget, report, offline)
 
         # 3. Voorbeeldsites bouwen voor de beste leads die er nog geen hebben.
+        # Nog geen demo, of een demo van voor de laatste ontwerpwijziging.
         candidates = [
-            row for row in database.ranked_leads(store, limit=settings["demos_per_run"] * 3)
-            if not row.get("demo_slug") and (row["score"] or 0) >= settings["min_score"]
+            row for row in database.ranked_leads(store, limit=settings["demos_per_run"] * 4)
+            if (row["score"] or 0) >= settings["min_score"]
+            and (not row.get("demo_slug") or row.get("demo_versie") != DEMO_VERSIE)
         ][: settings["demos_per_run"]]
         for row in candidates:
             if not budget.allows(12, counters["demos"]):
@@ -259,7 +261,10 @@ def run_cycle(
                 from .demo import render_demo
 
                 path = str(render_demo(row, campaign))
-            database.record_demo(store, row["id"], slug, path=path, url=demo_url_for(slug), html=html)
+            database.record_demo(
+                store, row["id"], slug, path=path, url=demo_url_for(slug),
+                html=html, versie=DEMO_VERSIE,
+            )
             counters["demos"] += 1
         if counters["demos"]:
             store.commit()

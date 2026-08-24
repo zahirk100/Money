@@ -27,7 +27,7 @@ from . import db as database
 from . import report as reporting
 from .audit import top_pitches
 from .config import OUT_DIR, Campaign
-from .demo import TEMPLATE_DIR, build_demo, demo_slug
+from .demo import DEMO_VERSIE, TEMPLATE_DIR, build_demo, demo_slug
 from .outreach import draft_email, eligible
 from .pipeline import autopilot_settings, demo_url_for, run_cycle, send_due
 from .store import OpslagOntbreekt, Store, now, open_store, stamp
@@ -601,7 +601,9 @@ def make_handler(
 
             if action == "demo":
                 slug, html = build_demo(row, campaign)
-                database.record_demo(store, row["id"], slug, url=demo_url_for(slug), html=html)
+                database.record_demo(
+                    store, row["id"], slug, url=demo_url_for(slug), html=html, versie=DEMO_VERSIE
+                )
                 store.commit()
                 self._json({"demo": f"/demo/{slug}"})
             elif action == "queue":

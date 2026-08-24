@@ -115,6 +115,38 @@ class TestCycle(unittest.TestCase):
         self.assertEqual(settings["send_mode"], "review")
 
 
+class TestDemoVernieuwing(unittest.TestCase):
+    """Verandert het ontwerp, dan moeten bestaande demo's mee. Anders zit je
+    vast aan de pagina's die je toevallig het eerst hebt gebouwd."""
+
+    def test_demos_from_an_older_design_are_rebuilt_once(self):
+        from leadmachine.demo import DEMO_VERSIE
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = database.connect(Path(tmp) / "t.db")
+            run_cycle(campaign(), store, live=False, offline=True)
+            aantal = int(store.scalar("SELECT COUNT(*) AS n FROM demos"))
+            self.assertGreater(aantal, 0)
+
+            # Een tweede beurt hoort niets opnieuw te bouwen.
+            tweede = run_cycle(campaign(), store, live=False, offline=True)
+            self.assertEqual(tweede["demos"], 0)
+
+            # Nu doen alsof ze van een ouder ontwerp zijn.
+            store.execute("UPDATE demos SET versie = ?", ("1",))
+            store.commit()
+            derde = run_cycle(campaign(), store, live=False, offline=True)
+            self.assertEqual(derde["demos"], aantal, "alles hoort opnieuw gebouwd")
+            self.assertEqual(
+                store.scalar("SELECT COUNT(*) AS n FROM demos WHERE versie = ?", (DEMO_VERSIE,)),
+                aantal,
+            )
+
+            # En daarna weer rustig blijven.
+            self.assertEqual(run_cycle(campaign(), store, live=False, offline=True)["demos"], 0)
+            store.close()
+
+
 class TestOverview(unittest.TestCase):
     def test_funnel_never_grows(self):
         with tempfile.TemporaryDirectory() as tmp:

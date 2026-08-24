@@ -3,146 +3,465 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ lead.name }}{% if lead.city %} - {{ niche_label }} in {{ lead.city }}{% endif %}</title>
-<meta name="description" content="{{ meta_description }}">
+<title>{{ lead.naam }}{% if lead.stad %} - {{ niche_label }} in {{ lead.stad }}{% endif %}</title>
+<meta name="description" content="{{ meta_omschrijving }}">
 <meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="{{ thema.accent }}">
 <style>
   :root{
-    --ink:#12151a; --muted:#5b6472; --line:#e4e7ec; --bg:#ffffff; --soft:#f6f7f9;
-    --brand:{{ brand }}; --brand-ink:#ffffff; --radius:14px;
-    --font:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    color-scheme: light;
+    --accent:{{ thema.accent }};
+    --tint:{{ thema.tint }};
+    --ink:#0d1117; --ink-2:#414b58; --muted:#6b7684;
+    --vlak:#ffffff; --grond:#fbfbfa; --lijn:#e6e8ec;
+    --rand:0 1px 2px rgba(13,17,23,.06), 0 8px 24px -12px rgba(13,17,23,.18);
+    --rand-hoog:0 2px 4px rgba(13,17,23,.06), 0 24px 48px -20px rgba(13,17,23,.28);
+    --r:16px; --r-groot:26px;
+    --font:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      color-scheme: dark;
+      --accent:{{ thema.accent_donker }};
+      --tint:#16181d;
+      --ink:#f3f5f7; --ink-2:#b6bfcc; --muted:#8b95a4;
+      --vlak:#15181e; --grond:#0c0e12; --lijn:#252a33;
+      --rand:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.6);
+      --rand-hoog:0 2px 4px rgba(0,0,0,.4), 0 24px 48px -20px rgba(0,0,0,.7);
+    }
   }
   *{box-sizing:border-box}
-  body{margin:0;font-family:var(--font);color:var(--ink);background:var(--bg);line-height:1.6;-webkit-font-smoothing:antialiased}
-  .wrap{max-width:1060px;margin:0 auto;padding:0 20px}
-  header{position:sticky;top:0;background:rgba(255,255,255,.94);backdrop-filter:blur(8px);border-bottom:1px solid var(--line);z-index:20}
-  .bar{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 0}
-  .logo{font-weight:700;font-size:1.05rem;letter-spacing:-.01em}
-  .logo span{color:var(--brand)}
-  .nav{display:none;gap:26px}
-  .nav a{color:var(--muted);text-decoration:none;font-size:.95rem}
-  .nav a:hover{color:var(--ink)}
-  .btn{display:inline-block;background:var(--brand);color:var(--brand-ink);padding:11px 20px;border-radius:999px;
-       text-decoration:none;font-weight:600;font-size:.95rem;white-space:nowrap}
-  .btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}
-  .hero{padding:64px 0 56px;background:linear-gradient(180deg,var(--soft),#fff)}
-  .hero h1{font-size:clamp(2rem,6vw,3.3rem);line-height:1.1;margin:.2em 0 .35em;letter-spacing:-.03em}
-  .hero p.lead{font-size:1.15rem;color:var(--muted);max-width:56ch;margin:0 0 28px}
-  .eyebrow{display:inline-block;background:#fff;border:1px solid var(--line);color:var(--muted);
-           padding:6px 14px;border-radius:999px;font-size:.82rem;font-weight:600}
-  .cta-row{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
-  section{padding:56px 0;border-top:1px solid var(--line)}
-  h2{font-size:clamp(1.4rem,3.4vw,2rem);letter-spacing:-.02em;margin:0 0 8px}
-  .sub{color:var(--muted);margin:0 0 32px;max-width:60ch}
-  .grid{display:grid;gap:18px;grid-template-columns:1fr}
-  .card{border:1px solid var(--line);border-radius:var(--radius);padding:22px;background:#fff}
-  .card h3{margin:0 0 6px;font-size:1.05rem}
-  .card p{margin:0;color:var(--muted);font-size:.95rem}
-  .hours{width:100%;border-collapse:collapse}
-  .hours td{padding:10px 0;border-bottom:1px solid var(--line);font-size:.97rem}
-  .hours td:last-child{text-align:right;color:var(--muted)}
-  .contact{display:grid;gap:26px;grid-template-columns:1fr}
-  .contact a{color:var(--ink)}
-  .big-link{display:block;font-size:1.35rem;font-weight:700;text-decoration:none;letter-spacing:-.01em}
-  footer{padding:34px 0;color:var(--muted);font-size:.88rem;border-top:1px solid var(--line)}
-  .demo-note{background:#111827;color:#e5e7eb;padding:12px 0;font-size:.85rem}
-  .demo-note strong{color:#fff}
-  .demo-note a{color:#93c5fd}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--grond);color:var(--ink);font-family:var(--font);
+       line-height:1.6;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+  .wrap{max-width:1120px;margin:0 auto;padding:0 22px}
+  a{color:inherit}
+
+  /* ---- balk die zegt dat dit een voorstel is ---- */
+  .voorstel{background:var(--ink);color:#fff;font-size:.82rem;padding:9px 0;letter-spacing:.01em}
+  @media (prefers-color-scheme: dark){ .voorstel{background:#000} }
+  .voorstel b{font-weight:650}
+  .voorstel a{color:#fff;text-underline-offset:3px}
+
+  /* ---- kop ---- */
+  header{position:sticky;top:0;z-index:40;background:color-mix(in srgb, var(--grond) 88%, transparent);
+         backdrop-filter:saturate(180%) blur(12px);border-bottom:1px solid transparent;transition:border-color .2s}
+  header.vast{border-bottom-color:var(--lijn)}
+  .balk{display:flex;align-items:center;gap:20px;padding:15px 0}
+  .merk{font-weight:680;letter-spacing:-.022em;font-size:1.06rem;line-height:1.2}
+  .merk i{display:block;font-style:normal;font-weight:450;font-size:.74rem;color:var(--muted);
+          letter-spacing:.06em;text-transform:uppercase;margin-top:2px}
+  nav{display:none;gap:28px;margin-left:auto;font-size:.94rem}
+  nav a{color:var(--ink-2);text-decoration:none;transition:color .15s}
+  nav a:hover{color:var(--ink)}
+  .knop{display:inline-flex;align-items:center;gap:8px;background:var(--accent);color:#fff;
+        padding:11px 19px;border-radius:999px;text-decoration:none;font-weight:600;font-size:.93rem;
+        white-space:nowrap;box-shadow:var(--rand);transition:transform .15s, box-shadow .15s}
+  .knop:hover{transform:translateY(-1px);box-shadow:var(--rand-hoog)}
+  .knop.stil{background:var(--vlak);color:var(--ink);border:1px solid var(--lijn);box-shadow:none}
+  .knop svg{width:17px;height:17px;flex:none}
+
+  /* ---- hero ---- */
+  .hero{position:relative;overflow:hidden;padding:64px 0 74px}
+  .hero::before{content:"";position:absolute;inset:-40% -20% auto -20%;height:120%;z-index:-2;
+    background:
+      radial-gradient(58% 52% at 18% 12%, color-mix(in srgb, var(--accent) 26%, transparent), transparent 70%),
+      radial-gradient(46% 44% at 88% 8%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 68%),
+      linear-gradient(180deg, var(--tint), transparent 78%);
+  }
+  .hero::after{content:"";position:absolute;inset:0;z-index:-1;opacity:.5;
+    background-image:radial-gradient(currentColor .6px, transparent .6px);
+    background-size:22px 22px;color:var(--lijn);
+    -webkit-mask-image:linear-gradient(180deg,#000,transparent 65%);
+            mask-image:linear-gradient(180deg,#000,transparent 65%)}
+  .hero-grid{display:grid;gap:38px;align-items:start}
+  .label{display:inline-flex;align-items:center;gap:8px;background:var(--vlak);border:1px solid var(--lijn);
+         color:var(--ink-2);padding:6px 14px;border-radius:999px;font-size:.8rem;font-weight:560;
+         box-shadow:var(--rand)}
+  .label b{color:var(--accent);font-weight:650}
+  h1{font-size:clamp(2.15rem,6.4vw,3.85rem);line-height:1.03;letter-spacing:-.035em;
+     margin:.42em 0 .3em;font-weight:700;max-width:15ch}
+  .leidend{font-size:clamp(1.02rem,2.1vw,1.16rem);color:var(--ink-2);max-width:52ch;margin:0 0 30px}
+  .acties{display:flex;flex-wrap:wrap;gap:12px}
+
+  /* ---- kaart met de praktische gegevens ---- */
+  .paneel{background:var(--vlak);border:1px solid var(--lijn);border-radius:var(--r-groot);
+          box-shadow:var(--rand-hoog);overflow:hidden}
+  .paneel-kop{padding:20px 24px 16px;border-bottom:1px solid var(--lijn);
+              background:linear-gradient(180deg, color-mix(in srgb, var(--accent) 7%, transparent), transparent)}
+  .status{display:inline-flex;align-items:center;gap:9px;font-weight:640;font-size:.94rem}
+  .stip{width:9px;height:9px;border-radius:50%;background:var(--muted);flex:none;position:relative}
+  .stip.open{background:#16a34a}
+  .stip.open::after{content:"";position:absolute;inset:-5px;border-radius:50%;
+                    border:2px solid #16a34a;opacity:.35;animation:puls 2.4s ease-out infinite}
+  .stip.dicht{background:#94a3b8}
+  @keyframes puls{0%{transform:scale(.7);opacity:.5}100%{transform:scale(1.5);opacity:0}}
+  .status small{display:block;color:var(--muted);font-weight:450;font-size:.83rem;margin-top:2px}
+  .paneel-lijst{padding:6px 24px 18px}
+  .regel{display:flex;gap:14px;align-items:flex-start;padding:14px 0;border-bottom:1px solid var(--lijn)}
+  .regel:last-child{border-bottom:0}
+  .regel svg{width:19px;height:19px;color:var(--accent);flex:none;margin-top:2px}
+  .regel .t{font-size:.79rem;color:var(--muted);letter-spacing:.03em;text-transform:uppercase;
+            font-weight:600;margin-bottom:1px}
+  .regel .w{font-weight:560;letter-spacing:-.01em}
+  .regel a{color:inherit;text-decoration:none}
+  .regel a:hover{color:var(--accent)}
+  .nummer{font-size:1.32rem;font-weight:680;letter-spacing:-.02em}
+
+  /* ---- kenmerken ---- */
+  .chips{display:flex;flex-wrap:wrap;gap:9px;margin-top:26px}
+  .chip{display:inline-flex;align-items:center;gap:7px;background:var(--vlak);border:1px solid var(--lijn);
+        padding:7px 13px;border-radius:999px;font-size:.85rem;color:var(--ink-2);box-shadow:var(--rand)}
+  .chip svg{width:15px;height:15px;color:var(--accent);flex:none}
+
+  /* ---- secties ---- */
+  section{padding:74px 0}
+  section + section{border-top:1px solid var(--lijn)}
+  .titel{font-size:clamp(1.55rem,3.6vw,2.3rem);letter-spacing:-.028em;margin:0 0 10px;font-weight:680}
+  .onder{color:var(--ink-2);margin:0 0 40px;max-width:58ch;font-size:1.02rem}
+  .drie{display:grid;gap:18px;grid-template-columns:1fr}
+  .dienst{background:var(--vlak);border:1px solid var(--lijn);border-radius:var(--r);padding:28px 26px;
+          box-shadow:var(--rand);transition:transform .2s, box-shadow .2s}
+  .dienst:hover{transform:translateY(-3px);box-shadow:var(--rand-hoog)}
+  .dienst .ico{width:46px;height:46px;border-radius:13px;display:grid;place-items:center;margin-bottom:18px;
+    background:color-mix(in srgb, var(--accent) 12%, transparent);color:var(--accent)}
+  .dienst .ico svg{width:23px;height:23px}
+  .dienst h3{margin:0 0 7px;font-size:1.1rem;letter-spacing:-.015em;font-weight:640}
+  .dienst p{margin:0;color:var(--ink-2);font-size:.96rem}
+
+  /* ---- openingstijden ---- */
+  .tijden{background:var(--vlak);border:1px solid var(--lijn);border-radius:var(--r);overflow:hidden;
+          box-shadow:var(--rand);max-width:540px}
+  .dag{display:flex;justify-content:space-between;gap:16px;padding:14px 22px;font-size:.97rem;
+       border-bottom:1px solid var(--lijn)}
+  .dag:last-child{border-bottom:0}
+  .dag.vandaag{background:color-mix(in srgb, var(--accent) 9%, transparent);font-weight:640}
+  .dag.vandaag .naam::after{content:"vandaag";margin-left:9px;font-size:.7rem;letter-spacing:.05em;
+    text-transform:uppercase;color:#fff;background:var(--accent);padding:2px 8px;border-radius:999px;
+    font-weight:650;vertical-align:1px}
+  .dag .uren{color:var(--ink-2);font-variant-numeric:tabular-nums}
+  .dag.gesloten .uren{color:var(--muted)}
+
+  /* ---- contact ---- */
+  .contact{display:grid;gap:22px;grid-template-columns:1fr}
+  .formulier{background:var(--vlak);border:1px solid var(--lijn);border-radius:var(--r);padding:28px 26px;
+             box-shadow:var(--rand)}
+  .veld{margin-bottom:14px}
+  .veld label{display:block;font-size:.85rem;color:var(--ink-2);margin-bottom:6px;font-weight:560}
+  .veld input,.veld textarea{width:100%;padding:12px 14px;border:1px solid var(--lijn);border-radius:11px;
+    background:var(--grond);color:var(--ink);font:inherit;font-size:.95rem}
+  .veld textarea{min-height:96px;resize:vertical}
+  .formulier .let{font-size:.83rem;color:var(--muted);margin:14px 0 0}
+  .kaartje{background:var(--vlak);border:1px solid var(--lijn);border-radius:var(--r);overflow:hidden;
+           box-shadow:var(--rand)}
+  .kaartje .plaatje{height:150px;position:relative;
+    background:
+      radial-gradient(60% 80% at 30% 30%, color-mix(in srgb, var(--accent) 20%, transparent), transparent 70%),
+      linear-gradient(135deg, var(--tint), transparent);
+    display:grid;place-items:center}
+  .kaartje .plaatje svg{width:42px;height:42px;color:var(--accent)}
+  .kaartje .info{padding:22px 24px}
+
+  footer{padding:44px 0 34px;border-top:1px solid var(--lijn);color:var(--muted);font-size:.89rem}
+  .footer-grid{display:flex;flex-wrap:wrap;gap:18px;justify-content:space-between;align-items:flex-start}
+  .socials{display:flex;gap:10px}
+  .socials a{width:36px;height:36px;border-radius:10px;border:1px solid var(--lijn);display:grid;
+             place-items:center;color:var(--ink-2);text-decoration:none;font-size:.78rem;font-weight:600}
+
+  /* ---- belbalk op de telefoon ---- */
+  .belbalk{position:fixed;left:0;right:0;bottom:0;z-index:50;padding:10px 16px calc(10px + env(safe-area-inset-bottom));
+           background:color-mix(in srgb, var(--vlak) 94%, transparent);backdrop-filter:blur(12px);
+           border-top:1px solid var(--lijn);display:flex;gap:10px}
+  .belbalk .knop{flex:1;justify-content:center}
+  @media(min-width:760px){ .belbalk{display:none} }
+  @media(max-width:759px){ body{padding-bottom:78px} }
+
+  /* Verbergen mag alleen als de JavaScript daadwerkelijk draait: hapert die,
+     dan hoort de pagina gewoon zichtbaar te zijn in plaats van leeg. */
+  body.zweeft .op{opacity:0;transform:translateY(14px)}
+  body.zweeft .op.zichtbaar{opacity:1;transform:none;
+    transition:opacity .6s ease, transform .6s cubic-bezier(.2,.7,.2,1)}
+  @media (prefers-reduced-motion: reduce){
+    body.zweeft .op, body.zweeft .op.zichtbaar{opacity:1;transform:none;transition:none}
+    html{scroll-behavior:auto}
+    .stip.open::after{animation:none}
+  }
+
   @media(min-width:760px){
-    .nav{display:flex}
-    .grid{grid-template-columns:repeat(3,1fr)}
-    .contact{grid-template-columns:1.1fr .9fr}
+    nav{display:flex}
+    .drie{grid-template-columns:repeat(3,1fr)}
+    .contact{grid-template-columns:1.15fr .85fr}
+  }
+  @media(min-width:980px){
+    .hero-grid{grid-template-columns:1.12fr .88fr;gap:56px;align-items:center}
+    .hero{padding:86px 0 96px}
   }
 </style>
 </head>
 <body>
 
-<div class="demo-note">
+<div class="voorstel">
   <div class="wrap">
-    <strong>Vrijblijvend voorbeeld.</strong> Deze pagina is als voorstel gemaakt door
-    {{ sender.company_name }} en is <strong>geen offici&euml;le website van {{ lead.name }}</strong>.
-    Vragen of aanpassingen? <a href="mailto:{{ sender.sender_email }}">{{ sender.sender_email }}</a>
+    <b>Vrijblijvend voorbeeld</b> &mdash; gemaakt door {{ afzender.company_name }} als voorstel,
+    dit is <b>geen offici&euml;le website van {{ lead.naam }}</b>.
+    <a href="mailto:{{ afzender.sender_email }}">Reageren?</a>
   </div>
 </div>
 
-<header>
-  <div class="wrap bar">
-    <div class="logo">{{ lead.name }}<span>.</span></div>
-    <nav class="nav">
+<header id="kop">
+  <div class="wrap balk">
+    <div class="merk">{{ lead.naam }}<i>{{ niche_label }}{% if lead.stad %} &middot; {{ lead.stad }}{% endif %}</i></div>
+    <nav>
       <a href="#diensten">Diensten</a>
-      <a href="#openingstijden">Openingstijden</a>
+      {% if week or openingstijden_tekst %}<a href="#tijden">Openingstijden</a>{% endif %}
       <a href="#contact">Contact</a>
     </nav>
-    {% if lead.phone %}<a class="btn" href="tel:{{ phone_href }}">Bel {{ lead.phone }}</a>
-    {% else %}<a class="btn" href="#contact">Contact</a>{% endif %}
+    {% if lead.telefoon %}
+    <a class="knop" href="tel:{{ telefoon_href }}" style="margin-left:auto">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+           stroke-linejoin="round"><path d="{{ iconen.telefoon }}"/></svg>{{ lead.telefoon }}</a>
+    {% else %}
+    <a class="knop" href="#contact" style="margin-left:auto">Contact</a>
+    {% endif %}
   </div>
 </header>
 
 <div class="hero">
-  <div class="wrap">
-    <span class="eyebrow">{{ niche_label|capitalize }}{% if lead.city %} in {{ lead.city }}{% endif %}</span>
-    <h1>{{ headline }}</h1>
-    <p class="lead">{{ intro }}</p>
-    <div class="cta-row">
-      {% if lead.phone %}<a class="btn" href="tel:{{ phone_href }}">Direct bellen</a>{% endif %}
-      <a class="btn ghost" href="#diensten">Bekijk wat we doen</a>
+  <div class="wrap hero-grid">
+    <div>
+      <span class="label">{% if lead.stad %}<b>{{ lead.stad }}</b> &middot; {% endif %}{{ niche_label }}</span>
+      <h1>{{ kop }}</h1>
+      <p class="leidend">{{ intro }}</p>
+      <div class="acties">
+        {% if lead.telefoon %}
+        <a class="knop" href="tel:{{ telefoon_href }}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+               stroke-linejoin="round"><path d="{{ iconen.telefoon }}"/></svg>Bel {{ lead.telefoon }}</a>
+        {% endif %}
+        <a class="knop stil" href="#diensten">Bekijk wat we doen</a>
+      </div>
+      {% if feiten %}
+      <div class="chips">
+        {% for feit in feiten %}
+        <span class="chip">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"
+               stroke-linejoin="round"><path d="{{ iconen.get(feit.icoon, iconen.vink) }}"/></svg>{{ feit.tekst }}</span>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="paneel op">
+      <div class="paneel-kop">
+        <div class="status" id="status">
+          <span class="stip" id="stip"></span>
+          <span><span id="status-tekst">Openingstijden</span><small id="status-onder">&nbsp;</small></span>
+        </div>
+      </div>
+      <div class="paneel-lijst">
+        {% if adres or lead.stad %}
+        <div class="regel">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"
+               stroke-linejoin="round"><path d="{{ iconen.pin }}"/></svg>
+          <div><div class="t">Adres</div>
+            <div class="w">{% if adres %}{{ adres }}{% endif %}{% if lead.stad %}{% if adres %}, {% endif %}{{ lead.stad }}{% endif %}</div>
+            {% if route_url %}<a href="{{ route_url }}" rel="noopener" style="color:var(--accent);font-size:.9rem">Route bekijken</a>{% endif %}
+          </div>
+        </div>
+        {% endif %}
+        {% if lead.telefoon %}
+        <div class="regel">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"
+               stroke-linejoin="round"><path d="{{ iconen.telefoon }}"/></svg>
+          <div><div class="t">Telefoon</div>
+            <a class="nummer" href="tel:{{ telefoon_href }}">{{ lead.telefoon }}</a></div>
+        </div>
+        {% endif %}
+        {% if lead.email %}
+        <div class="regel">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"
+               stroke-linejoin="round"><path d="{{ iconen.kaart }}"/></svg>
+          <div><div class="t">E-mail</div><a class="w" href="mailto:{{ lead.email }}">{{ lead.email }}</a></div>
+        </div>
+        {% endif %}
+      </div>
     </div>
   </div>
 </div>
 
 <section id="diensten">
   <div class="wrap">
-    <h2>Waar we voor klaarstaan</h2>
-    <p class="sub">Een vaste plek waar klanten zien wat je doet - in plaats van dat ze het moeten vragen.</p>
-    <div class="grid">
-      {% for service in services %}
-      <div class="card">
-        <h3>{{ service.title }}</h3>
-        <p>{{ service.text }}</p>
+    <h2 class="titel op">Waar we voor klaarstaan</h2>
+    <p class="onder op">{{ thema.sfeer }}. Een vaste plek waar klanten zien wat u doet,
+      in plaats van dat ze het moeten vragen.</p>
+    <div class="drie">
+      {% for dienst in diensten %}
+      <div class="dienst op">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+          stroke-linecap="round" stroke-linejoin="round"><path d="{{ iconen.get(dienst.icoon, iconen.vink) }}"/></svg></div>
+        <h3>{{ dienst.titel }}</h3>
+        <p>{{ dienst.tekst }}</p>
       </div>
       {% endfor %}
     </div>
   </div>
 </section>
 
-{% if hours %}
-<section id="openingstijden">
+{% if week or openingstijden_tekst %}
+<section id="tijden">
   <div class="wrap">
-    <h2>Openingstijden</h2>
-    <p class="sub">Overgenomen uit de openbare gegevens - kloppen ze niet, dan passen we ze aan.</p>
-    <table class="hours">
-      {% for row in hours %}<tr><td>{{ row.days }}</td><td>{{ row.time }}</td></tr>{% endfor %}
-    </table>
+    <h2 class="titel op">Openingstijden</h2>
+    <p class="onder op">Overgenomen uit de openbare gegevens. Kloppen ze niet, dan passen we ze aan.</p>
+    {% if week %}
+    <div class="tijden op">
+      {% for dag in week %}
+      <div class="dag{% if dag.gesloten %} gesloten{% endif %}" data-dag="{{ loop.index0 }}">
+        <span class="naam">{{ dag.naam }}</span>
+        <span class="uren">{% if dag.gesloten %}Gesloten{% else %}{{ dag.tijden|join(' &nbsp;/&nbsp; ') }}{% endif %}</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="tijden op"><div class="dag"><span class="naam">Openingstijden</span>
+      <span class="uren">{{ openingstijden_tekst }}</span></div></div>
+    {% endif %}
   </div>
 </section>
 {% endif %}
 
 <section id="contact">
-  <div class="wrap contact">
-    <div>
-      <h2>Contact</h2>
-      <p class="sub">Bellen mag altijd. Wie liever mailt of appt, krijgt hier straks een formulier
-      dat direct in je mailbox binnenkomt.</p>
-      {% if lead.phone %}<a class="big-link" href="tel:{{ phone_href }}">{{ lead.phone }}</a>{% endif %}
-      {% if lead.email %}<a class="big-link" href="mailto:{{ lead.email }}">{{ lead.email }}</a>{% endif %}
-    </div>
-    <div class="card">
-      <h3>Adres</h3>
-      <p>
-        {% if address %}{{ address }}<br>{% endif %}
-        {{ (lead.postcode or '') ~ ' ' ~ (lead.city or '') }}
-      </p>
-      {% if maps_url %}<p style="margin-top:12px"><a href="{{ maps_url }}" rel="noopener">Route bekijken</a></p>{% endif %}
+  <div class="wrap">
+    <h2 class="titel op">Contact</h2>
+    <p class="onder op">Bellen mag altijd. Wie liever schrijft, gebruikt straks dit formulier &mdash;
+      dat komt dan rechtstreeks in uw mailbox binnen.</p>
+    <div class="contact">
+      <div class="formulier op">
+        <div class="veld"><label for="n">Naam</label><input id="n" placeholder="Uw naam" disabled></div>
+        <div class="veld"><label for="e">E-mail of telefoon</label><input id="e" placeholder="Waar kunnen we u bereiken?" disabled></div>
+        <div class="veld"><label for="b">Bericht</label><textarea id="b" placeholder="Waar kunnen we mee helpen?" disabled></textarea></div>
+        <span class="knop" style="cursor:default">Versturen</span>
+        <p class="let">Dit formulier is nog niet aangesloten &mdash; het hoort bij het voorstel.</p>
+      </div>
+      <div class="kaartje op">
+        <div class="plaatje">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
+               stroke-linejoin="round"><path d="{{ iconen.pin }}"/></svg>
+        </div>
+        <div class="info">
+          <div class="t" style="font-size:.79rem;color:var(--muted);text-transform:uppercase;
+               letter-spacing:.03em;font-weight:600">Bezoekadres</div>
+          <p style="margin:6px 0 0;font-weight:560">
+            {% if adres %}{{ adres }}<br>{% endif %}
+            {{ ((lead.postcode or '') ~ ' ' ~ (lead.stad or ''))|trim }}
+          </p>
+          {% if route_url %}<p style="margin:14px 0 0"><a href="{{ route_url }}" rel="noopener"
+            style="color:var(--accent);font-weight:560;text-decoration:none">Route bekijken &rarr;</a></p>{% endif %}
+        </div>
+      </div>
     </div>
   </div>
 </section>
 
 <footer>
-  <div class="wrap">
-    &copy; {{ year }} {{ lead.name }}{% if lead.city %} - {{ lead.city }}{% endif %}.
-    Voorbeeldpagina gemaakt door {{ sender.company_name }}.
+  <div class="wrap footer-grid">
+    <div>
+      <strong style="color:var(--ink)">{{ lead.naam }}</strong><br>
+      {% if adres %}{{ adres }}{% endif %}{% if lead.stad %}{% if adres %}, {% endif %}{{ lead.stad }}{% endif %}
+      {% if lead.telefoon %}<br>{{ lead.telefoon }}{% endif %}
+      <br><span style="font-size:.84rem">&copy; {{ jaar }} &middot; voorbeeldpagina gemaakt door {{ afzender.company_name }}</span>
+    </div>
+    {% if socials %}
+    <div class="socials">
+      {% for social in socials %}<a href="{{ social.url }}" rel="noopener">{{ social.naam[:2]|upper }}</a>{% endfor %}
+    </div>
+    {% endif %}
   </div>
 </footer>
 
+{% if lead.telefoon %}
+<div class="belbalk">
+  <a class="knop" href="tel:{{ telefoon_href }}">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+         stroke-linejoin="round"><path d="{{ iconen.telefoon }}"/></svg>Bel direct</a>
+  {% if route_url %}<a class="knop stil" href="{{ route_url }}" rel="noopener">Route</a>{% endif %}
+</div>
+{% endif %}
+
+<script>
+(() => {
+  const week = {{ week|tojson }};
+
+  // Nu open of niet: dat is het eerste wat iemand wil weten.
+  function toonStatus(){
+    const stip = document.getElementById('stip');
+    const tekst = document.getElementById('status-tekst');
+    const onder = document.getElementById('status-onder');
+    if (!week.length){ tekst.textContent = 'Openingstijden'; onder.textContent = 'Zie hieronder'; return; }
+
+    const nu = new Date();
+    const vandaag = (nu.getDay() + 6) % 7;          // maandag = 0
+    const minuten = nu.getHours() * 60 + nu.getMinutes();
+    const naarMin = (t) => { const [u, m] = t.split(':').map(Number); return u * 60 + m; };
+
+    document.querySelectorAll('.dag').forEach(el => {
+      if (Number(el.dataset.dag) === vandaag) el.classList.add('vandaag');
+    });
+
+    const dag = week[vandaag];
+    for (const blok of (dag.tijden || [])){
+      const [van, tot] = blok.split('-');
+      if (minuten >= naarMin(van) && minuten < naarMin(tot)){
+        stip.className = 'stip open';
+        tekst.textContent = 'Nu geopend';
+        onder.textContent = tot === '24:00' ? 'De hele dag' : 'Tot ' + tot;
+        return;
+      }
+      if (minuten < naarMin(van)){
+        stip.className = 'stip dicht';
+        tekst.textContent = 'Nu gesloten';
+        onder.textContent = 'Vandaag open vanaf ' + van;
+        return;
+      }
+    }
+    // Vandaag klaar of dicht: zoek de eerstvolgende dag die opengaat.
+    for (let i = 1; i <= 7; i++){
+      const volgende = week[(vandaag + i) % 7];
+      if (!volgende.gesloten && volgende.tijden.length){
+        stip.className = 'stip dicht';
+        tekst.textContent = 'Nu gesloten';
+        onder.textContent = (i === 1 ? 'Morgen' : volgende.naam) + ' open vanaf ' + volgende.tijden[0].split('-')[0];
+        return;
+      }
+    }
+    stip.className = 'stip dicht';
+    tekst.textContent = 'Gesloten';
+    onder.textContent = 'Bel gerust voor een afspraak';
+  }
+
+  // Rustig inzweven bij het scrollen; uit als iemand minder beweging wil.
+  function zweefIn(){
+    const items = document.querySelectorAll('.op');
+    if (!('IntersectionObserver' in window) ||
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches){
+      return;   // niets verbergen, dan is er ook niets te onthullen
+    }
+    document.body.classList.add('zweeft');
+    const kijker = new IntersectionObserver((rijen) => {
+      rijen.forEach((rij, i) => {
+        if (!rij.isIntersecting) return;
+        setTimeout(() => rij.target.classList.add('zichtbaar'), i * 70);
+        kijker.unobserve(rij.target);
+      });
+    }, {rootMargin: '0px 0px -8% 0px', threshold: .12});
+    items.forEach(el => kijker.observe(el));
+  }
+
+  const kop = document.getElementById('kop');
+  addEventListener('scroll', () => kop.classList.toggle('vast', scrollY > 8), {passive:true});
+
+  toonStatus();
+  zweefIn();
+})();
+</script>
 </body>
 </html>

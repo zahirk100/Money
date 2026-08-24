@@ -170,7 +170,7 @@ def ranked_leads(
     koppeling = "LEFT JOIN" if include_unaudited else "JOIN"
     sql = [
         "SELECT l.*, a.score, a.segment, a.findings, a.final_url, a.reachable,",
-        "       d.path AS demo_path, d.url AS demo_url, d.slug AS demo_slug,",
+        "       d.path AS demo_path, d.url AS demo_url, d.slug AS demo_slug, d.versie AS demo_versie,",
         "       (SELECT COUNT(*) FROM outreach_log o",
         "         WHERE o.lead_id = l.id AND o.status = 'verstuurd') AS sent_count",
         "FROM leads l",
@@ -200,14 +200,17 @@ def ranked_leads(
 def record_demo(
     store: Store, lead_id: int, slug: str,
     path: str | None = None, url: str | None = None, html: str | None = None,
+    versie: str | None = None,
 ) -> None:
     """De pagina gaat ook als HTML de database in, zodat een live omgeving
     zonder schijf hem alsnog kan serveren."""
     store.execute(
-        "INSERT INTO demos (lead_id, slug, path, url, html, created_at) VALUES (?, ?, ?, ?, ?, ?) "
+        "INSERT INTO demos (lead_id, slug, path, url, html, versie, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?) "
         "ON CONFLICT (lead_id) DO UPDATE SET slug = excluded.slug, path = excluded.path, "
-        "url = excluded.url, html = excluded.html, created_at = excluded.created_at",
-        (lead_id, slug, path, url, html, stamp()),
+        "url = excluded.url, html = excluded.html, versie = excluded.versie, "
+        "created_at = excluded.created_at",
+        (lead_id, slug, path, url, html, versie, stamp()),
     )
 
 

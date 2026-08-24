@@ -17,7 +17,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from leadmachine import db as database  # noqa: E402
 from leadmachine.audit import audit_lead, top_pitches  # noqa: E402
 from leadmachine.config import load_campaign  # noqa: E402
-from leadmachine.demo import parse_hours, render_demo, slugify  # noqa: E402
+from leadmachine.demo import build_demo, render_demo, slugify  # noqa: E402
+from leadmachine.demo_data import feiten_uit_tags, parse_opening_hours  # noqa: E402
 from leadmachine.discover import build_query, element_to_lead  # noqa: E402
 from leadmachine.outreach import draft_email, eligible, wrap_paragraphs  # noqa: E402
 
@@ -88,10 +89,45 @@ class TestDemo(unittest.TestCase):
     def test_slug(self):
         self.assertEqual(slugify("Kapsalon Anné & Zn"), "kapsalon-anne-zn")
 
-    def test_hours_are_translated(self):
-        rows = parse_hours("Mo-Fr 08:00-17:00; Sa 09:00-13:00")
-        self.assertEqual(rows[0]["days"], "Maandag-Vrijdag")
-        self.assertEqual(rows[1]["time"], "09:00-13:00")
+    def test_opening_hours_become_a_full_week(self):
+        week = parse_opening_hours("Mo-Fr 08:00-17:00; Sa 09:00-13:00")
+        self.assertEqual(len(week), 7)
+        self.assertEqual(week[0]["naam"], "Maandag")
+        self.assertEqual(week[0]["tijden"], ["08:00-17:00"])
+        self.assertEqual(week[5]["tijden"], ["09:00-13:00"])
+        self.assertTrue(week[6]["gesloten"], "zondag hoort dicht te zijn")
+
+    def test_dutch_day_names_are_understood(self):
+        week = parse_opening_hours("Di-Vr 09:00-17:30; Za 09:00-16:00")
+        self.assertTrue(week[0]["gesloten"])
+        self.assertEqual(week[1]["tijden"], ["09:00-17:30"])
+
+    def test_split_shifts_and_closed_days(self):
+        week = parse_opening_hours("Mo-Fr 08:00-12:00,13:00-17:00; Su off")
+        self.assertEqual(week[0]["tijden"], ["08:00-12:00", "13:00-17:00"])
+        self.assertTrue(week[6]["gesloten"])
+
+    def test_always_open(self):
+        week = parse_opening_hours("24/7")
+        self.assertTrue(all(not dag["gesloten"] for dag in week))
+
+    def test_unparseable_hours_do_not_crash(self):
+        self.assertEqual(parse_opening_hours("op afspraak"), [])
+        self.assertEqual(parse_opening_hours(None), [])
+
+    def test_facts_come_from_the_business_own_tags(self):
+        feiten = feiten_uit_tags({
+            "cuisine": "italian", "outdoor_seating": "yes", "wheelchair": "yes",
+            "payment:cards": "yes", "start_date": "1998",
+        })
+        teksten = [feit["tekst"] for feit in feiten]
+        self.assertEqual(teksten[0], "Sinds 1998", "het oprichtingsjaar hoort voorop")
+        self.assertIn("Italiaans", teksten)
+        self.assertIn("Terras", teksten)
+        self.assertIn("Rolstoeltoegankelijk", teksten)
+
+    def test_nothing_is_invented_when_there_are_no_tags(self):
+        self.assertEqual(feiten_uit_tags({}), [])
 
     def test_render_writes_page_with_business_details(self):
         lead = {
@@ -104,11 +140,33 @@ class TestDemo(unittest.TestCase):
             page = render_demo(lead, campaign(), out_dir=Path(tmp))
             html = page.read_text(encoding="utf-8")
         self.assertIn("Kapsalon De Schaar", html)
-        self.assertIn("Dinsdag-Vrijdag", html)
+        self.assertIn("Dinsdag", html)
         self.assertIn('href="tel:+31600000001"', html)
         self.assertNotIn("None", html)
         # De pagina moet zichzelf als voorbeeld aankondigen.
         self.assertIn("geen offici", html)
+
+    def test_page_uses_what_the_business_actually_has(self):
+        lead = {
+            "name": "Autobedrijf Steenwijk", "niche": "garage", "city": "Zwolle",
+            "street": "Sleutelplein", "housenumber": "2", "phone": "+31 38 0000006",
+            "opening_hours": "Mo-Fr 08:00-18:00; Sa 09:00-13:00", "osm_id": "6",
+            "raw": {"service:vehicle:tyres": "yes", "start_date": "1987", "payment:cards": "yes"},
+        }
+        _, html = build_demo(lead, campaign())
+        self.assertIn("Sinds 1987", html)
+        self.assertIn("Banden", html)
+        self.assertIn("Pinnen mogelijk", html)
+        self.assertIn("Zaterdag", html)
+
+    def test_page_stays_sober_without_extra_data(self):
+        """Geen verzonnen recensies of cijfers op een pagina met iemands naam."""
+        _, html = build_demo(
+            {"name": "Timmerbedrijf Plank", "niche": "aannemer", "osm_id": "9", "raw": {}},
+            campaign(),
+        )
+        for verzinsel in ("recensie", "sterren", "tevreden klanten", "★"):
+            self.assertNotIn(verzinsel, html.lower())
 
     def test_render_escapes_business_name(self):
         lead = {"name": "<script>x</script> BV", "niche": "kapper", "osm_id": "2"}
