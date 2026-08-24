@@ -535,7 +535,7 @@ class TestToegang(unittest.TestCase):
             store.execute("DELETE FROM leads")
             store.commit()
             camp = campaign()
-            instellingen = {"discover_every_days": 7, "source": "fixture"}
+            instellingen = {"discover_every_days": 7, "source": "fixture", "backlog_grens": 40}
 
             eerste = _discover_step(camp, store, instellingen, Budget(0.001), lambda _: None, False)
             openstaand = json.loads(database.get_meta(store, "discover_pending"))
@@ -546,6 +546,82 @@ class TestToegang(unittest.TestCase):
             self.assertEqual(json.loads(database.get_meta(store, "discover_pending")), [])
             self.assertIsNotNone(database.get_meta(store, "last_discover"))
         finally:
+            store.close()
+
+    def test_search_covers_every_area_and_branch(self):
+        """De machine hoort niet aan een stad vast te zitten: elke gemeente uit
+        de config komt in de wachtrij, met alle branches erbij."""
+        from leadmachine import pipeline
+
+        gezien = []
+
+        def nep_discover(campaign, source="overpass", only_niche=None, area=None, **rest):
+            gezien.append((area, only_niche))
+            return iter(())
+
+        camp = campaign()
+        camp.areas = ["Zwolle", "Kampen"]
+        with tempfile.TemporaryDirectory() as tmp:
+            store = database.connect(Path(tmp) / "t.db")
+            echte = pipeline.discover
+            pipeline.discover = nep_discover
+            try:
+                pipeline._discover_step(
+                    camp, store, {"discover_every_days": 7, "source": "overpass", "backlog_grens": 40},
+                    pipeline.Budget(None), lambda _: None, True,
+                )
+            finally:
+                pipeline.discover = echte
+            store.close()
+
+        gebieden = {gebied for gebied, _ in gezien}
+        self.assertEqual(gebieden, {"Zwolle", "Kampen"})
+        self.assertEqual(len(gezien), len(camp.areas) * len(camp.niches))
+
+    def test_an_overpass_outage_does_not_kill_the_cycle(self):
+        """Beoordelen en demo's bouwen hebben niets met Overpass te maken; die
+        horen door te gaan als het ophalen stukloopt."""
+        from leadmachine import pipeline
+
+        def stukke_discover(*args, **kwargs):
+            raise RuntimeError("Overpass onbereikbaar (timed out)")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = database.connect(Path(tmp) / "t.db")
+            run_cycle(campaign(), store, live=False, offline=True)   # eerst vullen
+            store.execute("DELETE FROM audits")
+            store.execute("DELETE FROM meta")
+            store.commit()
+
+            echte = pipeline.discover
+            pipeline.discover = stukke_discover
+            try:
+                tellers = run_cycle(campaign(), store, live=False, offline=True, force_discover=True)
+            finally:
+                pipeline.discover = echte
+
+            self.assertEqual(tellers["discovered"], 0)
+            self.assertGreater(tellers["audited"], 0, "beoordelen hoort gewoon door te gaan")
+            run = database.recent_runs(store, 1)[0]
+            self.assertEqual(run["status"], "klaar", "een storing bij Overpass is geen mislukte beurt")
+            store.close()
+
+    def test_a_big_backlog_pauses_the_search(self):
+        """Honderd bedrijven zonder oordeel zijn meer waard dan honderd nieuwe."""
+        from leadmachine import pipeline
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = database.connect(Path(tmp) / "t.db")
+            for i in range(45):
+                database.upsert_lead(store, {
+                    "osm_type": "node", "osm_id": f"b{i}", "name": f"Bedrijf {i}", "niche": "kapper",
+                })
+            store.commit()
+            gevonden = pipeline._discover_step(
+                campaign(), store, {"discover_every_days": 7, "source": "fixture", "backlog_grens": 40},
+                pipeline.Budget(None), lambda _: None, False,
+            )
+            self.assertEqual(gevonden, 0)
             store.close()
 
     def test_wrong_password_is_refused(self):

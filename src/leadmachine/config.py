@@ -28,7 +28,7 @@ class Niche:
 
 @dataclass
 class Campaign:
-    area: str
+    areas: list[str]
     admin_level: int
     niches: list[Niche]
     audit: dict[str, Any]
@@ -52,6 +52,11 @@ class Campaign:
         if score >= self.warm_threshold:
             return "warm"
         return "cold"
+
+    @property
+    def area(self) -> str:
+        """De eerste gemeente. Handig voor teksten die er een noemen."""
+        return self.areas[0] if self.areas else ""
 
     def niche(self, name: str) -> Niche | None:
         return next((n for n in self.niches if n.name == name), None)
@@ -105,8 +110,8 @@ def load_campaign(path: str | Path | None = None) -> Campaign:
 
     raw = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
     region = raw.get("region") or {}
-    if not region.get("area"):
-        raise ConfigError("region.area ontbreekt in de config (bijv. 'Zwolle').")
+    if not (region.get("areas") or region.get("area")):
+        raise ConfigError("region.areas ontbreekt in de config (bijv. ['Zwolle', 'Kampen']).")
 
     niches = [
         Niche(
@@ -127,7 +132,7 @@ def load_campaign(path: str | Path | None = None) -> Campaign:
             outreach[field] = int(value) if field == "daily_limit" else value
 
     return Campaign(
-        area=str(os.environ.get("LM_AREA") or region["area"]),
+        areas=_gebieden(os.environ.get("LM_AREA") or region.get("areas") or region.get("area")),
         admin_level=int(region.get("admin_level", 8)),
         niches=niches,
         audit=raw.get("audit") or {},
@@ -137,6 +142,15 @@ def load_campaign(path: str | Path | None = None) -> Campaign:
         path=cfg_path,
         _raw=raw,
     )
+
+
+def _gebieden(waarde: Any) -> list[str]:
+    """Een gemeente, een rij gemeenten, of een lijst met komma's ertussen."""
+    if isinstance(waarde, (list, tuple)):
+        namen = [str(deel).strip() for deel in waarde]
+    else:
+        namen = [deel.strip() for deel in str(waarde or "").split(",")]
+    return [naam for naam in namen if naam]
 
 
 def load_dotenv(path: str | Path | None = None) -> None:

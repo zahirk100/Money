@@ -33,8 +33,18 @@ Reporter = Callable[[str], None]
 _stamp = staticmethod(stamp) if False else (lambda moment: stamp(moment))
 
 
+# Hoe lang we het ophalen laten rusten na een storing bij Overpass.
+PAUZE_MINUTEN = 20
+
+
 def _noop(_: str) -> None:
     pass
+
+
+def _kort(exc: Exception) -> str:
+    """Een leesbare samenvatting; de volledige uitleg staat in de logboeken."""
+    tekst = str(exc).split("(")[0].strip() or type(exc).__name__
+    return tekst[:120]
 
 
 class Budget:
@@ -77,6 +87,7 @@ def autopilot_settings(campaign: Campaign) -> dict[str, Any]:
         "send_mode": str(value("send_mode", "review")),
         "review_hours": int(value("review_hours", 12)),
         "min_score": int(value("min_score", 45)),
+        "backlog_grens": int(value("backlog_grens", 40)),
         "source": str(value("source", "overpass")),
     }
 
@@ -124,31 +135,70 @@ def _discover_step(
     Daarom wordt na elke branche opgeslagen wat er nog open staat: de volgende
     aanroep pakt de rest op in plaats van weer vooraan te beginnen.
     """
+    # Ligt er nog een flinke stapel te beoordelen, dan is die stapel meer waard
+    # dan nog meer bedrijven erbij. Een Overpass-query eet bijna het hele
+    # tijdsbudget op, en een lead zonder oordeel levert niets op.
+    wachtend = int(store.scalar(
+        "SELECT COUNT(*) AS n FROM leads l LEFT JOIN audits a ON a.lead_id = l.id "
+        "WHERE a.id IS NULL"
+    ) or 0)
+    if not force and wachtend >= int(settings.get("backlog_grens", 40)):
+        report(f"Ophalen overgeslagen: eerst {wachtend} bedrijven beoordelen.")
+        return 0
+
+    # Na een mislukte poging even niet opnieuw: Overpass is dan meestal druk,
+    # en elke poging kost het budget dat het beoordelen nodig heeft.
+    pauze = database.get_meta(store, "discover_pauze_tot")
+    if not force and pauze and (database._as_datetime(pauze) or now()) > now():
+        report("Ophalen staat even op pauze na een eerdere storing.")
+        return 0
+
     openstaand = json.loads(database.get_meta(store, "discover_pending") or "[]")
     if not openstaand:
         if not (force or _should_discover(store, settings["discover_every_days"])):
             return 0
-        openstaand = [niche.name for niche in campaign.niches]
+        openstaand = [
+            f"{gebied}::{niche.name}"
+            for gebied in campaign.areas
+            for niche in campaign.niches
+        ]
 
     gevonden = 0
     branches = 0
     while openstaand and budget.allows(35, branches):
-        naam = openstaand[0]
-        report(f"Bedrijven ophalen: {naam}...")
+        gebied, _, naam = openstaand[0].rpartition("::")
+        gebied = gebied or campaign.area
+        report(f"Bedrijven ophalen: {naam} in {gebied}...")
         # Nooit langer wachten dan er nog tijd is: anders kapt het platform de
         # functie af terwijl wij nog netjes hadden kunnen opslaan.
         wachttijd = 30.0 if budget.left == float("inf") else max(8.0, budget.left - 8)
-        binnen = list(discover(
-            campaign, source=settings["source"], only_niche=naam, timeout=wachttijd
-        ))
+        try:
+            binnen = list(discover(
+                campaign, source=settings["source"], only_niche=naam,
+                timeout=wachttijd, area=gebied,
+            ))
+        except Exception as exc:  # noqa: BLE001
+            # Een storing bij Overpass mag de rest van de cyclus niet slopen:
+            # beoordelen, demo's bouwen en versturen hebben er niets mee te
+            # maken. De branche blijft openstaan voor de volgende beurt.
+            database.set_meta(
+                store, "discover_pauze_tot", stamp(now() + timedelta(minutes=PAUZE_MINUTEN))
+            )
+            store.commit()
+            report(
+                f"Ophalen van {naam} in {gebied} lukte niet ({_kort(exc)}); "
+                "de rest van de cyclus gaat door."
+            )
+            return gevonden
         gevonden += database.upsert_many(store, binnen)
         openstaand.pop(0)
         branches += 1
         database.set_meta(store, "discover_pending", json.dumps(openstaand))
+        database.set_meta(store, "discover_pauze_tot", "")
         store.commit()
 
     if openstaand:
-        report(f"{gevonden} nieuw; nog {len(openstaand)} branches te gaan, volgende beurt verder.")
+        report(f"{gevonden} nieuw; nog {len(openstaand)} combinaties te gaan, volgende beurt verder.")
     else:
         database.set_meta(store, "last_discover", stamp())
         database.set_meta(store, "discover_pending", "[]")

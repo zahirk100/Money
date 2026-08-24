@@ -81,7 +81,7 @@ def cmd_discover(args: argparse.Namespace) -> int:
             _, is_new = database.upsert_lead(store, lead)
             added += int(is_new)
             updated += int(not is_new)
-    print(f"{GREEN}{added} nieuwe leads{RESET}, {updated} bijgewerkt in {campaign.area}.")
+    print(f"{GREEN}{added} nieuwe leads{RESET}, {updated} bijgewerkt in {', '.join(campaign.areas)}.")
     if added or updated:
         print(f"{DIM}Volgende stap: python -m leadmachine audit{RESET}")
     return 0

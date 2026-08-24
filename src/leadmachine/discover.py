@@ -25,7 +25,7 @@ OVERPASS_ENDPOINTS = [
 FIXTURE = Path(__file__).resolve().parents[2] / "data" / "fixtures" / "sample_osm.json"
 
 
-def build_query(campaign: Campaign, niche: Niche, timeout: int = 25) -> str:
+def build_query(campaign: Campaign, niche: Niche, timeout: int = 25, area: str | None = None) -> str:
     selectors = []
     for raw in niche.filters:
         key, _, value = raw.partition("=")
@@ -36,7 +36,7 @@ def build_query(campaign: Campaign, niche: Niche, timeout: int = 25) -> str:
         )
     return (
         f"[out:json][timeout:{timeout}];\n"
-        f'area["name"="{campaign.area}"]["boundary"="administrative"]'
+        f'area["name"="{area or campaign.area}"]["boundary"="administrative"]'
         f'["admin_level"="{campaign.admin_level}"]->.searchArea;\n'
         "(\n" + "\n".join(selectors) + "\n);\n"
         "out center tags;"
@@ -119,6 +119,7 @@ def discover(
     only_niche: str | None = None,
     pause: float = 3.0,
     timeout: float = 30.0,
+    area: str | None = None,
 ) -> Iterable[dict[str, Any]]:
     """Levert lead-dicts op. source='fixture' draait volledig offline."""
     niches = [n for n in campaign.niches if not only_niche or n.name == only_niche]
@@ -139,7 +140,8 @@ def discover(
         if index:
             time.sleep(pause)  # Overpass is gratis; niet leegtrekken
         payload = fetch_overpass(
-            build_query(campaign, niche, timeout=max(10, int(timeout) - 5)), timeout=timeout
+            build_query(campaign, niche, timeout=max(10, int(timeout) - 5), area=area),
+            timeout=timeout,
         )
         for element in payload.get("elements", []):
             lead = element_to_lead(element, niche.name, "overpass")

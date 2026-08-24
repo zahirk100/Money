@@ -2,9 +2,16 @@
 # Kopieer naar config/campaign.yaml en pas aan.
 
 region:
-  # Naam zoals die in OpenStreetMap staat. Voor NL gemeenten is admin_level 8,
-  # voor een wijk/buurt 10. Check via https://nominatim.openstreetmap.org
-  area: "Zwolle"
+  # Een of meer gemeenten, zoals ze in OpenStreetMap heten. Hij werkt ze een
+  # voor een af en onthoudt waar hij was, dus meer gemeenten is prima; het
+  # duurt alleen langer voordat alles binnen is.
+  # Ook te zetten via LM_AREA, met komma's ertussen.
+  areas:
+    - "Zwolle"
+    - "Kampen"
+    - "Deventer"
+  # Voor NL gemeenten is dit 8, voor een wijk of buurt 10.
+  # Controleer een naam via https://nominatim.openstreetmap.org
   admin_level: 8
 
 # Elke niche is een groep OSM-tags. Kies branches waar een website direct

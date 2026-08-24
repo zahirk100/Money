@@ -237,7 +237,7 @@ def _overview(store: Store, campaign: Campaign) -> dict[str, Any]:
         "autopilot": {
             **settings,
             "daily_limit": int(campaign.outreach.get("daily_limit", 25)),
-            "area": campaign.area,
+            "area": ", ".join(campaign.areas),
             "opslag": store.dialect,
         },
         "running": STATE["running"],
