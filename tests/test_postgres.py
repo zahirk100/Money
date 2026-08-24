@@ -29,6 +29,9 @@ EXAMPLE_CONFIG = Path(__file__).resolve().parents[1] / "config" / "campaign.exam
 def campaign(**overrides):
     camp = load_campaign(EXAMPLE_CONFIG)
     camp._raw["autopilot"] = {**(camp._raw.get("autopilot") or {}), "source": "fixture", **overrides}
+    # Tests draaien op een vast gebied. De voorbeeldconfig staat op "auto", en
+    # dan zou elke test langs 167 gemeenten willen: traag en onvoorspelbaar.
+    camp.areas = ["Zwolle"]
     return camp
 
 
@@ -55,8 +58,12 @@ class TestOnPostgres(unittest.TestCase):
         self.assertGreater(counters["queued"], 0)
 
     def test_upsert_does_not_duplicate(self):
-        run_cycle(campaign(), self.store, live=False, offline=True)
+        """Een beurt doet een handvol zoekopdrachten, dus eerst alles binnen
+        halen; daarna mag opnieuw ophalen niets verdubbelen."""
+        for _ in range(4):
+            run_cycle(campaign(), self.store, live=False, offline=True)
         first = int(self.store.scalar("SELECT COUNT(*) AS n FROM leads"))
+        self.assertGreater(first, 0)
         run_cycle(campaign(), self.store, live=False, offline=True, force_discover=True)
         self.assertEqual(int(self.store.scalar("SELECT COUNT(*) AS n FROM leads")), first)
 

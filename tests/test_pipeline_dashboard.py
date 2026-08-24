@@ -34,6 +34,9 @@ def campaign(**overrides):
     camp = load_campaign(EXAMPLE_CONFIG)
     camp._raw.setdefault("autopilot", {})
     camp._raw["autopilot"] = {**(camp._raw["autopilot"] or {}), "source": "fixture", **overrides}
+    # Tests draaien op een vast gebied. De voorbeeldconfig staat op "auto", en
+    # dan zou elke test langs 167 gemeenten willen: traag en onvoorspelbaar.
+    camp.areas = ["Zwolle"]
     return camp
 
 
@@ -69,9 +72,12 @@ class TestCycle(unittest.TestCase):
         self.assertEqual(second["queued"], 0)
 
     def test_discovery_is_skipped_when_recent(self):
-        run_cycle(campaign(), self.store, live=False, offline=True)
-        second = run_cycle(campaign(), self.store, live=False, offline=True)
-        self.assertEqual(second["discovered"], 0)
+        """Een beurt doet een handvol zoekopdrachten. Is de hele rij gehad,
+        dan hoort hij niet meteen opnieuw te beginnen."""
+        for _ in range(6):
+            run_cycle(campaign(), self.store, live=False, offline=True)
+        laatste = run_cycle(campaign(), self.store, live=False, offline=True)
+        self.assertEqual(laatste["discovered"], 0)
 
     def test_review_mode_delays_sending(self):
         run_cycle(campaign(send_mode="review", review_hours=12), self.store, live=False, offline=True)
@@ -566,10 +572,17 @@ class TestToegang(unittest.TestCase):
             echte = pipeline.discover
             pipeline.discover = nep_discover
             try:
-                pipeline._discover_step(
-                    camp, store, {"discover_every_days": 7, "source": "overpass", "backlog_grens": 40},
-                    pipeline.Budget(None), lambda _: None, True,
-                )
+                # Een beurt doet een handvol zoekopdrachten; doorgaan tot de rij
+                # leeg is. Alleen de eerste keer forceren, anders begint hij na
+                # het leegwerken gewoon opnieuw.
+                for beurt in range(8):
+                    pipeline._discover_step(
+                        camp, store,
+                        {"discover_every_days": 7, "source": "overpass", "backlog_grens": 40},
+                        pipeline.Budget(None), lambda _: None, beurt == 0,
+                    )
+                    if not json.loads(database.get_meta(store, "discover_pending") or "[]"):
+                        break
             finally:
                 pipeline.discover = echte
             store.close()
@@ -664,8 +677,11 @@ class TestToegang(unittest.TestCase):
             echte = pipeline.discover
             pipeline.discover = nep_discover
             try:
-                pipeline._discover_step(
-                    camp, store, instellingen, pipeline.Budget(None), lambda _: None, False)
+                # Doorgaan tot alles gehad is; een beurt doet een handvol
+                # zoekopdrachten, niet de hele rij.
+                for _ in range(6):
+                    pipeline._discover_step(
+                        camp, store, instellingen, pipeline.Budget(None), lambda _: None, False)
                 self.assertEqual(set(gezien), {"Zwolle"})
 
                 # Niets veranderd: hij blijft rustig.
@@ -677,8 +693,9 @@ class TestToegang(unittest.TestCase):
                 # Gemeente erbij: die hoort er meteen bij te komen.
                 gezien.clear()
                 camp.areas = ["Zwolle", "Kampen"]
-                pipeline._discover_step(
-                    camp, store, instellingen, pipeline.Budget(None), lambda _: None, False)
+                for _ in range(8):
+                    pipeline._discover_step(
+                        camp, store, instellingen, pipeline.Budget(None), lambda _: None, False)
                 self.assertIn("Kampen", gezien)
             finally:
                 pipeline.discover = echte
@@ -705,11 +722,12 @@ class TestToegang(unittest.TestCase):
             echte = pipeline.discover
             pipeline.discover = nep_discover
             try:
-                pipeline._discover_step(
-                    camp, store,
-                    {"discover_every_days": 7, "source": "overpass", "backlog_grens": 999},
-                    pipeline.Budget(None), lambda _: None, False,
-                )
+                for _ in range(6):
+                    pipeline._discover_step(
+                        camp, store,
+                        {"discover_every_days": 7, "source": "overpass", "backlog_grens": 999},
+                        pipeline.Budget(None), lambda _: None, False,
+                    )
             finally:
                 pipeline.discover = echte
 

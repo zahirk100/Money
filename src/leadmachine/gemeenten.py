@@ -15,7 +15,7 @@ GEMEENTEN: list[str] = [
     # Grote steden
     "Amsterdam", "Rotterdam", "Den Haag", "Utrecht", "Eindhoven", "Groningen",
     "Tilburg", "Almere", "Breda", "Nijmegen", "Apeldoorn", "Arnhem", "Haarlem",
-    "Haarlemmermeer", "Amersfoort", "Enschede", "Zaanstad", "Den Bosch",
+    "Haarlemmermeer", "Amersfoort", "Enschede", "Zaanstad", "'s-Hertogenbosch",
     "Zwolle", "Zoetermeer", "Leiden", "Leeuwarden", "Ede", "Maastricht",
     "Dordrecht", "Westland", "Alphen aan den Rijn", "Alkmaar", "Emmen",
     "Delft", "Venlo", "Deventer", "Helmond", "Oss", "Hilversum", "Heerlen",

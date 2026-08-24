@@ -193,7 +193,11 @@ def _discover_step(
 
     gevonden = 0
     branches = 0
-    while openstaand and budget.allows(35, branches):
+    # Ruimte voor meerdere zoekopdrachten per beurt. Veel combinaties leveren
+    # niets op - een hovenier in een klein dorp staat vaak niet in OSM - en met
+    # een opdracht per beurt lijkt het dan alsof de machine stilstaat. De
+    # reservering is afgestemd op een gewone query van een paar seconden.
+    while openstaand and branches < MAX_ZOEKOPDRACHTEN and budget.allows(12, branches):
         gebied, _, naam = openstaand[0].rpartition("::")
         gebied = gebied or campaign.area
         report(f"Bedrijven ophalen: {naam} in {gebied}...")
@@ -218,7 +222,9 @@ def _discover_step(
                 "de rest van de cyclus gaat door."
             )
             return gevonden
-        gevonden += database.upsert_many(store, binnen)
+        nieuw = database.upsert_many(store, binnen)
+        gevonden += nieuw
+        report(f"{naam} in {gebied}: {len(binnen)} gevonden, {nieuw} nieuw.")
         openstaand.pop(0)
         branches += 1
         database.set_meta(store, "discover_pending", json.dumps(openstaand))
@@ -241,6 +247,10 @@ def _discover_step(
 # bedrijf heeft zijn eigen server, dus dit belast niemand extra: per host blijft
 # het netjes een verzoek tegelijk met pauze ertussen.
 AUDIT_WORKERS = int(os.environ.get("LM_AUDIT_WORKERS", "6"))
+
+# Hoeveel zoekopdrachten een beurt hoogstens doet. Meer dan dit laat geen tijd
+# over om de gevonden bedrijven ook te beoordelen.
+MAX_ZOEKOPDRACHTEN = int(os.environ.get("LM_ZOEKOPDRACHTEN_PER_BEURT", "6"))
 
 _draad_eigen = threading.local()
 
