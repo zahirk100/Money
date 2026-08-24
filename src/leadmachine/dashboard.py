@@ -216,9 +216,20 @@ def _overview(store: Store, campaign: Campaign) -> dict[str, Any]:
             "SELECT COUNT(DISTINCT lead_id) AS n FROM outreach_log WHERE status = 'verstuurd'")},
     ]
 
+    # Alle branches die in de database zitten, niet alleen die met een oordeel:
+    # anders mist het filter juist de bedrijven die je nog moet bekijken.
+    branches = [
+        rij["niche"]
+        for rij in store.execute(
+            "SELECT niche, COUNT(*) AS n FROM leads WHERE niche IS NOT NULL "
+            "GROUP BY niche ORDER BY n DESC"
+        )
+    ]
+
     settings = autopilot_settings(campaign)
     return {
         "stats": stats,
+        "niches": branches,
         "sent_per_day": series,
         "funnel": funnel,
         "runs": database.recent_runs(store, 10),

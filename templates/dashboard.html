@@ -102,6 +102,24 @@
        border-radius:8px;padding:7px 10px;font-size:.82rem;box-shadow:0 6px 20px rgba(0,0,0,.14);
        opacity:0;transition:opacity .1s;z-index:60}
   svg text{font-family:var(--font)}
+
+  /* Op een telefoon past een tabel van zes kolommen niet: dan wordt elke rij
+     een kaartje, zodat de knoppen bereikbaar blijven zonder zijwaarts scrollen. */
+  @media(max-width:760px){
+    #leads thead{display:none}
+    #leads tbody tr{display:grid;grid-template-columns:auto 1fr;column-gap:12px;
+                    padding:14px 2px;border-bottom:1px solid var(--grid)}
+    /* Zonder min-width krimpt een cel in een grid niet mee en loopt de tekst
+       het kaartje uit. */
+    #leads tbody td{border:0;padding:0;min-width:0;overflow-wrap:anywhere}
+    #leads .c-score{grid-column:1;grid-row:1;text-align:left;white-space:nowrap}
+    #leads .c-naam{grid-column:2;grid-row:1}
+    #leads .c-branche{grid-column:2;font-size:.82rem;margin-top:2px}
+    #leads .c-contact{grid-column:2;font-size:.85rem;margin-top:6px}
+    #leads .c-mail{display:none}
+    #leads .c-acties{grid-column:1/-1;margin-top:12px;display:flex;gap:8px}
+    #leads .pitch{margin-top:6px;max-width:none}
+  }
   .hidden{display:none}
 </style>
 </head>
@@ -386,29 +404,46 @@ async function laadLeads(){
   const q = document.getElementById('q').value;
   const segment = document.getElementById('segment').value;
   const niche = document.getElementById('niche').value;
-  const leads = await get(`/api/leads?q=${encodeURIComponent(q)}&segment=${segment}&niche=${encodeURIComponent(niche)}`);
+  let leads;
+  try {
+    leads = await get(`/api/leads?q=${encodeURIComponent(q)}&segment=${segment}&niche=${encodeURIComponent(niche)}`);
+  } catch (err) {
+    document.getElementById('leads').innerHTML =
+      `<tbody><tr><td class="empty">${esc(err.message || err)}</td></tr></tbody>`;
+    return;
+  }
 
   const sel = document.getElementById('niche');
   if (sel.options.length === 1 && overzichtData){
-    (overzichtData.stats.per_niche || []).forEach(n => {
-      if (!n.niche) return;
-      const o = document.createElement('option'); o.value = n.niche; o.textContent = n.niche; sel.appendChild(o);
+    (overzichtData.niches || []).forEach(naam => {
+      const o = document.createElement('option'); o.value = naam; o.textContent = naam; sel.appendChild(o);
     });
   }
 
   document.getElementById('leads').innerHTML = leads.length ? `
     <thead><tr><th class="num">Score</th><th>Bedrijf</th><th>Branche</th><th>Contact</th>
-    <th>Demo</th><th>Mail</th><th></th></tr></thead>
+    <th class="num">Mail</th><th></th></tr></thead>
     <tbody>${leads.map(l => `<tr>
-      <td class="num">${scoreCel(l)}</td>
-      <td><strong>${esc(l.name)}</strong>${l.city ? ' <span class="muted">' + esc(l.city) + '</span>' : ''}
+      <td class="num c-score">${scoreCel(l)}</td>
+      <td class="c-naam"><strong>${esc(l.name)}</strong>${l.city ? ' <span class="muted">' + esc(l.city) + '</span>' : ''}
           <div class="pitch">${esc((l.pitches || [])[0] || '')}</div></td>
-      <td class="muted">${esc(l.niche || '-')}</td>
-      <td>${esc(l.phone || '')}${l.email ? '<br><span class="muted">' + esc(l.email) + '</span>' : ''}</td>
-      <td>${l.heeft_demo ? '<a href="/demo/' + encodeURIComponent(l.demo_path.split('/').slice(-2)[0]) + '/" target="_blank">bekijk</a>' : '<span class="muted">-</span>'}</td>
-      <td class="num">${l.sent_count ? fmt(l.sent_count) + '&times;' : '<span class="muted">-</span>'}</td>
-      <td><button class="btn sec sm" onclick="opendetail(${l.id})">Details</button></td>
-    </tr>`).join('')}</tbody>` : '<tbody><tr><td class="empty">Geen leads gevonden. Draai eerst een cyclus.</td></tr></tbody>';
+      <td class="muted c-branche">${esc(l.niche || '-')}</td>
+      <td class="c-contact">${esc(l.phone || '')}${l.email ? '<br><span class="muted">' + esc(l.email) + '</span>' : ''}</td>
+      <td class="num c-mail">${l.sent_count ? fmt(l.sent_count) + '&times;' : '<span class="muted">-</span>'}</td>
+      <td class="c-acties">
+        ${l.demo_slug ? `<a class="btn sec sm" href="/demo/${encodeURIComponent(l.demo_slug)}"
+           target="_blank" style="text-decoration:none">Demo</a> ` : ''}
+        <button class="btn sec sm" onclick="opendetail(${l.id})">Details</button></td>
+    </tr>`).join('')}</tbody>` : `<tbody><tr><td class="empty">${(q || segment || niche)
+        ? 'Geen bedrijven die aan deze filters voldoen. <button class="btn sec sm" style="margin-left:8px" onclick="wisFilters()">Filters wissen</button>'
+        : 'Nog geen bedrijven gevonden. Druk op Nu draaien.'}</td></tr></tbody>`;
+}
+
+function wisFilters(){
+  document.getElementById('q').value = '';
+  document.getElementById('segment').value = '';
+  document.getElementById('niche').value = '';
+  laadLeads();
 }
 
 async function laadWachtrij(){
@@ -464,7 +499,7 @@ async function bekijkMail(id){
 
 async function opendetail(id){
   const d = await get('/api/lead/' + id);
-  const demoLink = d.demo_path ? `/demo/${encodeURIComponent(d.demo_path.split('/').slice(-2)[0])}/` : null;
+  const demoLink = d.demo_slug ? `/demo/${encodeURIComponent(d.demo_slug)}` : null;
   toonDialoog(d.name, `${esc(d.niche || '')} &middot; ${esc([d.street, d.housenumber, d.city].filter(Boolean).join(' '))}`, `
     <dl class="kv">
       <dt>Score</dt><dd><strong>${fmt(d.score)}</strong> ${badge(SEGMENT, d.segment)}</dd>

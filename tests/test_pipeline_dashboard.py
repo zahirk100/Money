@@ -203,6 +203,22 @@ class TestDashboardServer(unittest.TestCase):
         # Een filter op segment laat ze juist weg.
         self.assertTrue(all(l["segment"] == "hot" for l in self.get("/api/leads?segment=hot")))
 
+    def test_lead_row_carries_the_demo_slug(self):
+        """De lijst bouwde de demolink uit een bestandspad. Online is er geen
+        schijf, dus dat pad is leeg en liep de hele tabel stuk."""
+        leads = self.get("/api/leads")
+        met_demo = [lead for lead in leads if lead["heeft_demo"]]
+        self.assertTrue(met_demo, "er hoort minstens een demo te zijn")
+        for lead in met_demo:
+            self.assertTrue(lead["demo_slug"], "zonder slug is de demo niet te openen")
+
+    def test_branch_filter_lists_every_branch_in_the_database(self):
+        """Ook branches waarvan nog niets beoordeeld is: juist daar zitten de
+        bedrijven die je nog moet bekijken."""
+        branches = self.get("/api/overview")["niches"]
+        self.assertIn("kapper", branches)
+        self.assertGreater(len(branches), 1)
+
     def test_search_matches_on_name(self):
         found = self.get("/api/leads?q=schaar")
         self.assertTrue(found)
