@@ -9,6 +9,7 @@ aanwezigheid doen, staan in OSM zonder website-tag. Dat is precies je doelgroep.
 from __future__ import annotations
 
 import json
+import random
 import time
 from pathlib import Path
 from typing import Any, Iterable
@@ -103,11 +104,34 @@ def element_to_lead(element: dict[str, Any], niche_name: str, source: str) -> di
     }
 
 
+# Wat Overpass terugstuurt als hij niet wil, in gewone taal. Deze tekst komt
+# in het dashboard terecht, dus "429" alleen is niet genoeg.
+OVERPASS_REDENEN = {
+    429: "te veel verzoeken achter elkaar (429)",
+    504: "de server had te lang nodig (504)",
+    503: "server tijdelijk niet beschikbaar (503)",
+    502: "server gaf een foutmelding door (502)",
+}
+
+
+def _reden(status: int) -> str:
+    return OVERPASS_REDENEN.get(status, f"foutcode {status}")
+
+
 def fetch_overpass(query: str, timeout: float = 30.0) -> dict[str, Any]:
     """Wachten heeft een grens. Een serverless functie leeft maar kort, dus een
-    trage query moet opgeven voordat het platform de hele functie afkapt."""
-    last_error: Exception | None = None
-    for endpoint in OVERPASS_ENDPOINTS:
+    trage query moet opgeven voordat het platform de hele functie afkapt.
+
+    Lukt het bij geen van de servers, dan staat in de foutmelding per server
+    waarom. Zonder die reden staat er in het dashboard alleen dat het niet
+    lukte, en dat is precies de melding waar je niets aan hebt.
+    """
+    redenen: list[str] = []
+    # Niet altijd bij dezelfde server beginnen: dan raakt die als eerste vol.
+    volgorde = list(OVERPASS_ENDPOINTS)
+    random.shuffle(volgorde)
+    for endpoint in volgorde:
+        naam = endpoint.split("/")[2]
         try:
             resp = requests.post(
                 endpoint,
@@ -115,18 +139,21 @@ def fetch_overpass(query: str, timeout: float = 30.0) -> dict[str, Any]:
                 timeout=timeout,
                 headers={"User-Agent": "LeadMachine/1.0 (OSM lead research)"},
             )
-            if resp.status_code == 429:
+            if resp.status_code >= 400:
+                redenen.append(f"{naam}: {_reden(resp.status_code)}")
                 # Druk bij Overpass. Even wachten heeft alleen zin als daar tijd
                 # voor is; anders meteen de andere server proberen.
-                if timeout > 20:
+                if resp.status_code == 429 and timeout > 20:
                     time.sleep(5)
                 continue
-            resp.raise_for_status()
             return resp.json()
-        except (requests.RequestException, ValueError) as exc:
-            last_error = exc
-            continue
-    raise RuntimeError(f"Overpass onbereikbaar ({last_error}).")
+        except requests.Timeout:
+            redenen.append(f"{naam}: gaf binnen {timeout:.0f} seconden geen antwoord")
+        except requests.RequestException as exc:
+            redenen.append(f"{naam}: geen verbinding ({type(exc).__name__})")
+        except ValueError:
+            redenen.append(f"{naam}: stuurde geen bruikbaar antwoord terug")
+    raise RuntimeError("Overpass gaf niets terug - " + "; ".join(redenen))
 
 
 def discover(

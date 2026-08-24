@@ -420,6 +420,41 @@ def close_stale_runs(store: Store, minuten: int = 15) -> None:
     )
 
 
+def bewaar_runlog(store: Store, run_id: int, regels: list[str], houden: int = 25) -> None:
+    """Bewaart wat een beurt heeft gemeld, zodat je het morgen nog kunt teruglezen.
+
+    Dit ging eerder alleen naar het scherm van wie op dat moment keek. Draaide de
+    cyclus vanzelf, of stond je scherm net op een ander tabblad, dan zag je
+    achteraf alleen nog een rij met nullen en niet waarom het nullen waren.
+    """
+    if not regels:
+        return
+    set_meta(store, f"runlog:{run_id}", "\n".join(regels[-80:]))
+    # Oude logs opruimen: dit is een kladblok, geen archief.
+    oud = store.execute(
+        "SELECT key FROM meta WHERE key LIKE 'runlog:%' ORDER BY key DESC"
+    )
+    sleutels = sorted(
+        (rij["key"] for rij in oud),
+        key=lambda k: int(k.split(":", 1)[1]) if k.split(":", 1)[1].isdigit() else 0,
+        reverse=True,
+    )
+    for sleutel in sleutels[houden:]:
+        store.execute("DELETE FROM meta WHERE key = ?", (sleutel,))
+
+
+def runlogs(store: Store, run_ids: list[int]) -> dict[int, str]:
+    """De meldingen bij een handvol beurten, in een keer opgehaald."""
+    if not run_ids:
+        return {}
+    plek = ", ".join("?" for _ in run_ids)
+    rijen = store.execute(
+        f"SELECT key, value FROM meta WHERE key IN ({plek})",
+        [f"runlog:{rid}" for rid in run_ids],
+    )
+    return {int(rij["key"].split(":", 1)[1]): rij["value"] for rij in rijen}
+
+
 def recent_runs(store: Store, limit: int = 15) -> list[dict[str, Any]]:
     return store.execute(f"SELECT * FROM runs ORDER BY id DESC LIMIT {int(limit)}")
 

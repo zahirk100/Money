@@ -183,6 +183,13 @@ font-weight:600;cursor:pointer}
 
 
 # -- gegevens voor de pagina ----------------------------------------------
+def _runs_met_log(store: Store, limit: int = 10) -> list[dict[str, Any]]:
+    """De laatste beurten, elk met wat de machine toen meldde."""
+    runs = database.recent_runs(store, limit)
+    logs = database.runlogs(store, [int(run["id"]) for run in runs])
+    return [{**run, "log": logs.get(int(run["id"]), "")} for run in runs]
+
+
 def _overview(store: Store, campaign: Campaign) -> dict[str, Any]:
     stats = reporting.stats(store)
 
@@ -232,7 +239,7 @@ def _overview(store: Store, campaign: Campaign) -> dict[str, Any]:
         "niches": branches,
         "sent_per_day": series,
         "funnel": funnel,
-        "runs": database.recent_runs(store, 10),
+        "runs": _runs_met_log(store),
         "queue": database.pending_outreach(store, 50),
         "autopilot": {
             **settings,
@@ -565,11 +572,20 @@ def make_handler(
                         # wordt alles opgeruimd. Dus draaien we hier binnen het
                         # verzoek, met hetzelfde tijdsbudget als de cron.
                         budget = float(os.environ.get("CRON_BUDGET_SECONDS", "35"))
+                        regels: list[str] = []
+
+                        def meekijken(bericht: str) -> None:
+                            regels.append(str(bericht))
+                            _log(bericht)
+
                         counters = run_cycle(
                             campaign, store, trigger="dashboard",
-                            budget_seconds=budget, report=_log,
+                            budget_seconds=budget, report=meekijken,
                         )
-                        self._json({"klaar": True, **counters})
+                        # De meldingen mee terug: live draait de cyclus binnen
+                        # dit ene verzoek, dus achteraf een logje ophalen kan
+                        # niet meer. Zonder deze regels zie je alleen nullen.
+                        self._json({"klaar": True, "regels": regels, **counters})
                     else:
                         _run_in_background(campaign, target, "dashboard")
                         self._json({"gestart": True})

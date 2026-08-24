@@ -56,7 +56,11 @@
   h1{font-size:1.5rem;letter-spacing:-.02em;margin:28px 0 4px}
   h2{font-size:1.05rem;letter-spacing:-.01em;margin:0 0 2px}
   .sub{color:var(--ink-2);margin:0 0 18px;font-size:.92rem}
-  .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px}
+  /* min-width:0 is hier niet cosmetisch: zonder dat weigert een grid-kind te
+     krimpen onder de breedte van zijn inhoud, en duwt een brede tabel de hele
+     pagina opzij in plaats van binnen zijn eigen kader te scrollen. */
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+        padding:20px;min-width:0}
   .row{display:grid;gap:16px;margin-bottom:16px}
   @media(min-width:900px){ .row.two{grid-template-columns:1.45fr 1fr} }
 
@@ -74,7 +78,7 @@
   td{padding:10px;border-bottom:1px solid var(--grid);vertical-align:top}
   td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
   tbody tr:hover{background:var(--plane)}
-  .scroll{overflow-x:auto}
+  .scroll{overflow-x:auto;max-width:100%}
 
   .badge{display:inline-flex;align-items:center;gap:6px;font-size:.76rem;font-weight:600;
          padding:3px 9px;border-radius:999px;border:1px solid var(--border);white-space:nowrap}
@@ -87,6 +91,11 @@
   .log{background:var(--plane);border:1px solid var(--border);border-radius:8px;padding:12px;
        font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.8rem;color:var(--ink-2);
        max-height:190px;overflow:auto;white-space:pre-wrap}
+  /* Een beurt is aanklikbaar; daaronder klapt uit wat hij toen meldde. */
+  tr.beurt{cursor:pointer}
+  tr.beurt:hover{background:var(--plane)}
+  tr.beurt.gekozen{background:var(--plane)}
+  .klap{color:var(--muted);font-size:.7rem}
   dialog{border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);color:var(--ink);
          max-width:760px;width:92%;padding:0}
   dialog::backdrop{background:rgba(0,0,0,.45)}
@@ -167,8 +176,8 @@
       </div>
       <div class="card">
         <h2>Live meekijken</h2>
-        <p class="sub">Verschijnt zodra er een cyclus draait.</p>
-        <div class="log" id="log">Nog niets gedraaid in deze sessie.</div>
+        <p class="sub" id="log-kop">Wat de laatste beurt meldde. Tik een beurt aan voor die van toen.</p>
+        <div class="log" id="log">Nog niets gedraaid.</div>
       </div>
     </div>
   </section>
@@ -342,6 +351,8 @@ function opnieuwProberen(){
   laadOverzicht();
 }
 
+let STATE_BEZIG = false;
+
 async function laadOverzicht(){
   let d;
   try {
@@ -384,17 +395,41 @@ async function laadOverzicht(){
   barChart(document.getElementById('chart-sent'), d.sent_per_day);
   funnelChart(document.getElementById('chart-funnel'), d.funnel);
 
+  // Elke beurt is uitklapbaar: daaronder staat wat de machine toen meldde.
+  // Een rij met nullen zonder uitleg zegt niets - de uitleg staat in het log.
   document.getElementById('runs').innerHTML = d.runs.length ? `
     <thead><tr><th>Wanneer</th><th>Aanleiding</th><th class="num">Nieuw</th><th class="num">Beoordeeld</th>
     <th class="num">Demo's</th><th class="num">Klaargezet</th><th class="num">Verstuurd</th><th>Status</th></tr></thead>
-    <tbody>${d.runs.map(r => `<tr>
-      <td>${tijd(r.started_at)}</td><td class="muted">${esc(r.trigger)}</td>
+    <tbody>${d.runs.map((r, i) => `<tr class="beurt" data-log="${i}">
+      <td>${tijd(r.started_at)}${r.log ? ' <span class="klap" aria-hidden="true">&#9656;</span>' : ''}</td>
+      <td class="muted">${esc(r.trigger)}</td>
       <td class="num">${fmt(r.discovered)}</td><td class="num">${fmt(r.audited)}</td>
       <td class="num">${fmt(r.demos)}</td><td class="num">${fmt(r.queued)}</td><td class="num">${fmt(r.sent)}</td>
       <td>${r.status === 'mislukt'
             ? `<span class="badge"><span class="dot" style="background:var(--critical)"></span>Mislukt</span>`
             : `<span class="badge"><span class="dot" style="background:var(--good)"></span>${esc(r.status)}</span>`}</td>
     </tr>`).join('')}</tbody>` : '<tbody><tr><td class="empty">Nog niets gedraaid.</td></tr></tbody>';
+
+  // Op een tabel van acht kolommen past geen leesbaar log; die schuift op een
+  // telefoon half buiten beeld. Een tik op een beurt zet het log daarom in het
+  // paneel eronder, waar de regels gewoon afbreken.
+  function toonBeurt(i){
+    const r = d.runs[i];
+    if (!r) return;
+    document.querySelectorAll('#runs .beurt').forEach(el =>
+      el.classList.toggle('gekozen', Number(el.dataset.log) === i));
+    document.getElementById('log-kop').textContent =
+      // textContent escapet zelf; er hoeft hier niets omheen.
+      `Beurt van ${tijd(r.started_at)} (${r.trigger})`;
+    document.getElementById('log').textContent =
+      r.log || (r.error ? String(r.error) : 'Geen meldingen bewaard bij deze beurt.');
+  }
+  document.querySelectorAll('#runs .beurt').forEach(rij =>
+    rij.addEventListener('click', () => toonBeurt(Number(rij.dataset.log))));
+
+  // En zonder klikken staat de laatste beurt er al, ook als je er niet bij was
+  // toen hij draaide.
+  if (!STATE_BEZIG && d.runs.length) toonBeurt(0);
 
   document.getElementById('run-btn').disabled = d.running;
   document.getElementById('run-btn').textContent = d.running ? 'Bezig...' : 'Nu draaien';
@@ -543,12 +578,14 @@ document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', (
 document.getElementById('run-btn').addEventListener('click', async () => {
   const knop = document.getElementById('run-btn');
   knop.disabled = true; knop.textContent = 'Bezig...';
+  STATE_BEZIG = true;
   document.getElementById('log').textContent = 'Bezig... dit kan een minuut duren.';
   let res;
   try {
     res = await post('/api/run');
   } catch (err) {
     // De knop mag nooit blijven hangen: zeggen wat er is, en weer vrijgeven.
+    STATE_BEZIG = false;
     document.getElementById('log').textContent = err.message || String(err);
     knop.disabled = false; knop.textContent = 'Nu draaien';
     laadOverzicht();
@@ -557,8 +594,10 @@ document.getElementById('run-btn').addEventListener('click', async () => {
   if (res.gestart) { volgLog(); return; }      // lokaal: draait op de achtergrond
   // Live draait de cyclus binnen dit verzoek en is hij nu klaar.
   document.getElementById('log').textContent =
+    ((res.regels || []).join('\n') + '\n\n' || '') +
     `Klaar. ${res.discovered} nieuw, ${res.audited} beoordeeld, ${res.demos} demo's, ` +
     `${res.queued} klaargezet, ${res.sent} verstuurd.`;
+  STATE_BEZIG = false;
   knop.disabled = false; knop.textContent = 'Nu draaien';
   mailCache = []; laadOverzicht();
 });
@@ -571,7 +610,7 @@ async function volgLog(){
   document.getElementById('run-btn').disabled = s.running;
   document.getElementById('run-btn').textContent = s.running ? 'Bezig...' : 'Nu draaien';
   if (s.running) setTimeout(volgLog, 1200);
-  else { mailCache = []; laadOverzicht(); }
+  else { STATE_BEZIG = false; mailCache = []; laadOverzicht(); }
 }
 
 addEventListener('resize', () => {

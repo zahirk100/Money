@@ -44,9 +44,14 @@ def _noop(_: str) -> None:
 
 
 def _kort(exc: Exception) -> str:
-    """Een leesbare samenvatting; de volledige uitleg staat in de logboeken."""
-    tekst = str(exc).split("(")[0].strip() or type(exc).__name__
-    return tekst[:120]
+    """Een leesbare samenvatting voor in het dashboard.
+
+    Eerder knipte dit alles weg vanaf het eerste haakje. Dat gooide net het
+    stuk weg waar je iets aan hebt ("te veel verzoeken (429)"), en liet een
+    melding over waar niemand mee verder kon.
+    """
+    tekst = " ".join(str(exc).split()) or type(exc).__name__
+    return tekst[:220]
 
 
 class Budget:
@@ -156,8 +161,16 @@ def _discover_step(
     # Na een mislukte poging even niet opnieuw: Overpass is dan meestal druk,
     # en elke poging kost het budget dat het beoordelen nodig heeft.
     pauze = database.get_meta(store, "discover_pauze_tot")
-    if not force and pauze and (database._as_datetime(pauze) or now()) > now():
-        report("Ophalen staat even op pauze na een eerdere storing.")
+    tot = database._as_datetime(pauze) if pauze else None
+    if not force and tot and tot > now():
+        # Zeggen tot wanneer, en dat de rest gewoon doorgaat. "Even op pauze"
+        # zonder tijd erbij laat je op de knop blijven drukken.
+        reden = database.get_meta(store, "discover_pauze_reden") or ""
+        report(
+            f"Ophalen staat op pauze tot {tot:%H:%M}"
+            + (f" - {reden}" if reden else " na een eerdere storing")
+            + ". Beoordelen en demo's bouwen gaan wel door."
+        )
         return 0
 
     # Waar we naar zoeken: elke gemeente maal elke branche.
@@ -221,9 +234,11 @@ def _discover_step(
             database.set_meta(
                 store, "discover_pauze_tot", stamp(now() + timedelta(minutes=PAUZE_MINUTEN))
             )
+            database.set_meta(store, "discover_pauze_reden", _kort(exc))
             store.commit()
             report(
-                f"Ophalen van {naam} in {gebied} lukte niet ({_kort(exc)}); "
+                f"Ophalen van {naam} in {gebied} lukte niet: {_kort(exc)}. "
+                f"Volgende {PAUZE_MINUTEN} minuten geen zoekopdrachten; "
                 "de rest van de cyclus gaat door."
             )
             return gevonden
@@ -234,6 +249,7 @@ def _discover_step(
         branches += 1
         database.set_meta(store, "discover_pending", json.dumps(openstaand))
         database.set_meta(store, "discover_pauze_tot", "")
+        database.set_meta(store, "discover_pauze_reden", "")
         store.commit()
 
     if openstaand:
@@ -421,6 +437,15 @@ def run_cycle(
         live = settings["enabled"]
     budget = Budget(budget_seconds)
 
+    # Alles wat de cyclus meldt gaat ook de database in. Anders zie je achteraf
+    # alleen een rij met nullen en niet waarom het nullen waren - en juist dat
+    # wil je weten als er iets niet loopt.
+    regels: list[str] = []
+
+    def meld(bericht: str) -> None:
+        regels.append(str(bericht))
+        report(bericht)
+
     counters = {"discovered": 0, "audited": 0, "demos": 0, "queued": 0, "sent": 0, "failed": 0}
     database.close_stale_runs(store)
     run_id = database.start_run(store, trigger)
@@ -430,7 +455,7 @@ def run_cycle(
 
         # 1. Nieuwe bedrijven ophalen, branche voor branche.
         counters["discovered"] = _discover_step(
-            campaign, store, settings, budget, report, force_discover
+            campaign, store, settings, budget, meld, force_discover
         )
 
         # 2. Websites beoordelen, zolang er tijd is.
@@ -440,8 +465,8 @@ def run_cycle(
         if ruimte > 0:
             todo += database.leads_needing_recheck(store, limit=ruimte)
         if todo:
-            report(f"{len(todo)} websites te beoordelen...")
-            counters["audited"] = _audit_step(campaign, store, todo, budget, report, offline)
+            meld(f"{len(todo)} websites te beoordelen...")
+            counters["audited"] = _audit_step(campaign, store, todo, budget, meld, offline)
 
         # 3. Voorbeeldsites bouwen voor de beste leads die er nog geen hebben.
         # Nog geen demo, of een demo van voor de laatste ontwerpwijziging.
@@ -455,7 +480,7 @@ def run_cycle(
         # Teksten laten schrijven duurt per bedrijf een paar seconden; naast
         # elkaar scheelt dat het verschil tussen drie en vijftien pagina's per
         # beurt. Staat de AI uit, dan gebeurt hier niets.
-        teksten = _teksten_ophalen(campaign, store, candidates, budget, report)
+        teksten = _teksten_ophalen(campaign, store, candidates, budget, meld)
         for row in candidates:
             eigen_tekst = teksten.get(row["id"])
             # Een beurt zonder AI-tekst hoort ruim binnen de tijd te passen; met
@@ -480,7 +505,7 @@ def run_cycle(
         if counters["demos"]:
             store.commit()
             met_tekst = sum(1 for row in candidates[: counters["demos"]] if teksten.get(row["id"]))
-            report(
+            meld(
                 f"{counters['demos']} voorbeeldsites gebouwd"
                 + (f", waarvan {met_tekst} met eigen tekst." if ai_tekst.ingeschakeld() else ".")
             )
@@ -505,22 +530,26 @@ def run_cycle(
             counters["queued"] += 1
         if counters["queued"]:
             store.commit()
-            report(
+            meld(
                 f"{counters['queued']} mails klaargezet"
                 + (f" (gaan over {wait_hours} uur de deur uit)." if wait_hours else ".")
             )
 
         # 5. Versturen wat aan de beurt is.
         counters["sent"], counters["failed"] = send_due(
-            campaign, store, live=live, report=report, budget=budget
+            campaign, store, live=live, report=meld, budget=budget
         )
 
+        database.bewaar_runlog(store, run_id, regels)
         database.finish_run(store, run_id, counters)
+        store.commit()
         return counters
 
     except Exception as exc:  # noqa: BLE001 - een mislukte run mag de autopilot niet slopen
+        meld(f"Fout tijdens de cyclus: {exc}")
+        database.bewaar_runlog(store, run_id, regels)
         database.finish_run(store, run_id, counters, status="mislukt", error=str(exc))
-        report(f"Fout tijdens de cyclus: {exc}")
+        store.commit()
         traceback.print_exc()
         raise
 

@@ -956,3 +956,51 @@ class TestAiTekstInDeCyclus(unittest.TestCase):
         self.assertEqual(versies, {DEMO_VERSIE})
         html = self.store.one("SELECT html FROM demos LIMIT 1")["html"]
         self.assertIn("Waar we voor klaarstaan", html)
+
+
+class TestBeurtLog(unittest.TestCase):
+    """Een rij met nullen zonder uitleg is geen informatie. Wat de machine
+    meldde hoort bewaard te blijven, ook als niemand op dat moment keek."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.store = database.connect(Path(self.tmp.name) / "t.db")
+
+    def tearDown(self):
+        self.store.close()
+        self.tmp.cleanup()
+
+    def test_what_a_cycle_reported_is_kept(self):
+        run_cycle(campaign(), self.store, live=False, offline=True)
+        run = database.recent_runs(self.store, 1)[0]
+        logs = database.runlogs(self.store, [int(run["id"])])
+        self.assertIn(int(run["id"]), logs)
+        self.assertIn("Bedrijven ophalen", logs[int(run["id"])])
+
+    def test_a_failed_search_says_why(self):
+        def stuk(*args, **kwargs):
+            raise RuntimeError("Overpass gaf niets terug - overpass-api.de: te veel verzoeken (429)")
+
+        with mock.patch("leadmachine.pipeline.discover", side_effect=stuk):
+            run_cycle(campaign(), self.store, live=False, offline=True)
+
+        run = database.recent_runs(self.store, 1)[0]
+        log = database.runlogs(self.store, [int(run["id"])])[int(run["id"])]
+        self.assertIn("429", log)
+        self.assertIn("te veel verzoeken", log)
+
+        # En de volgende beurt zegt tot wanneer het ophalen stilligt.
+        with mock.patch("leadmachine.pipeline.discover", side_effect=stuk):
+            run_cycle(campaign(), self.store, live=False, offline=True)
+        tweede = database.recent_runs(self.store, 1)[0]
+        log2 = database.runlogs(self.store, [int(tweede["id"])])[int(tweede["id"])]
+        self.assertIn("op pauze tot", log2)
+
+    def test_old_logs_are_cleaned_up(self):
+        for i in range(1, 40):
+            database.bewaar_runlog(self.store, i, [f"beurt {i}"], houden=10)
+        self.store.commit()
+        bewaard = self.store.execute("SELECT key FROM meta WHERE key LIKE 'runlog:%'")
+        self.assertEqual(len(bewaard), 10)
+        # De nieuwste zijn er nog.
+        self.assertIn("runlog:39", {r["key"] for r in bewaard})
