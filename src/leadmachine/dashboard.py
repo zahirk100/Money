@@ -56,6 +56,49 @@ VEREIST = [
 ]
 
 
+def uitleg_bij_databasefout(exc: Exception) -> str:
+    """Maakt van een technische verbindingsfout een zin waar je iets aan hebt."""
+    tekst = str(exc)
+    laag = tekst.lower()
+    url = os.environ.get("DATABASE_URL", "")
+
+    if "your-password" in url.lower():
+        return ("In DATABASE_URL staat nog de plaatshouder [YOUR-PASSWORD]. "
+                "Vervang die door je databasewachtwoord.")
+    if "password authentication failed" in laag or "wachtwoord" in laag:
+        return ("De database weigert het wachtwoord uit DATABASE_URL. Controleer het, "
+                "of stel het opnieuw in via Project Settings > Database.")
+    if "network is unreachable" in laag or "cannot assign requested address" in laag:
+        return ("De database is niet bereikbaar. Gebruik je de directe verbinding? "
+                "Die werkt alleen over IPv6; neem de Session pooler (poort 5432).")
+    if "could not translate host name" in laag or "name or service not known" in laag:
+        return "De hostnaam uit DATABASE_URL bestaat niet. Kopieer de string opnieuw."
+    if "timeout" in laag or "timed out" in laag:
+        return "De database antwoordde niet op tijd. Staat het project misschien gepauzeerd?"
+    if "too many clients" in laag or "max clients" in laag:
+        return ("De database heeft te veel gelijktijdige verbindingen. "
+                "Even wachten en opnieuw proberen.")
+    if "no module named" in laag and "psycopg" in laag:
+        return "Het pakket psycopg ontbreekt in de installatie."
+    return f"Verbinden met de database lukt niet: {tekst}"
+
+
+def _database_check(target: str | None = None) -> tuple[bool, str]:
+    try:
+        store = open_store(target)
+    except OpslagOntbreekt as exc:
+        return False, str(exc)
+    except Exception as exc:  # noqa: BLE001
+        return False, uitleg_bij_databasefout(exc)
+    try:
+        store.scalar("SELECT 1 AS een")
+        return True, f"bereikbaar ({store.dialect})"
+    except Exception as exc:  # noqa: BLE001
+        return False, uitleg_bij_databasefout(exc)
+    finally:
+        store.close()
+
+
 def _ontbrekende_instellingen(target: str | None = None) -> list[tuple[str, str]]:
     """Een expliciet meegegeven database telt als ingevuld; dan is de
     omgevingsvariabele niet nodig."""
@@ -293,6 +336,21 @@ def make_handler(
         def _store(self) -> Store:
             return open_store(target)
 
+        def _store_of_fout(self) -> Store | None:
+            """Geeft de verbinding terug, of stuurt zelf een leesbaar antwoord.
+
+            Zonder dit liep een mislukte verbinding buiten alle afhandeling om
+            en kreeg je een kale 500 waar niets uit op te maken viel.
+            """
+            try:
+                return self._store()
+            except Exception as exc:  # noqa: BLE001
+                self._json(
+                    {"fout": uitleg_bij_databasefout(exc), "waar": "database"},
+                    503,
+                )
+                return None
+
         def _route(self) -> tuple[str, dict[str, list[str]]]:
             """Het pad waar het verzoek eigenlijk voor bedoeld was.
 
@@ -387,7 +445,14 @@ def make_handler(
                 self._cron()
                 return
             if path in {"/gezond", "/health"}:
-                self._json({"status": "ok", "klaar": not _ontbrekende_instellingen(target)})
+                ontbreekt = [naam for naam, _ in _ontbrekende_instellingen(target)]
+                database_ok, database_melding = _database_check(target)
+                self._json({
+                    "status": "ok" if database_ok and not ontbreekt else "instellen",
+                    "klaar": database_ok and not ontbreekt,
+                    "ontbreekt": ontbreekt,
+                    "database": database_melding,
+                })
                 return
             if is_hosted() and _ontbrekende_instellingen(target):
                 self._setup_page()
@@ -414,7 +479,9 @@ def make_handler(
                 self._json({"fout": "niet gevonden"}, 404)
                 return
 
-            store = self._store()
+            store = self._store_of_fout()
+            if store is None:
+                return
             try:
                 if path == "/api/overview":
                     self._json(_overview(store, campaign))
@@ -437,7 +504,7 @@ def make_handler(
                         self._json({"running": STATE["running"], "log": list(STATE["log"])})
                 else:
                     self._json({"fout": "niet gevonden"}, 404)
-            except (ValueError, Exception) as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001
                 self._json({"fout": str(exc)}, 400)
             finally:
                 store.close()
@@ -468,7 +535,9 @@ def make_handler(
                 self._json({"fout": "niet ingelogd of token klopt niet"}, 403)
                 return
 
-            store = self._store()
+            store = self._store_of_fout()
+            if store is None:
+                return
             try:
                 if path == "/api/run":
                     if is_hosted():

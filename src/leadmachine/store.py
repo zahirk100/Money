@@ -178,8 +178,12 @@ class Store:
             # na een paar herhalingen vanzelf voorbereiden, en dat loopt daar
             # stuk. Uitzetten kost hier vrijwel niets en maakt beide poorten
             # bruikbaar.
+            # Zonder verbindingstime-out blijft een onbereikbare database
+            # hangen tot het platform de hele functie afkapt. Tien seconden is
+            # ruim voor een database die het doet.
             self._conn = psycopg.connect(
-                self.target, row_factory=dict_row, autocommit=False, prepare_threshold=None
+                self.target, row_factory=dict_row, autocommit=False,
+                prepare_threshold=None, connect_timeout=10,
             )
         else:
             path = Path(self.target)
@@ -256,6 +260,15 @@ def resolve_target(explicit: str | Path | None = None) -> str:
     for key in ("DATABASE_URL", "POSTGRES_URL", "SUPABASE_DB_URL"):
         value = os.environ.get(key)
         if value:
+            # Meteen zeggen wat er mis is; anders probeert hij te verbinden met
+            # een wachtwoord dat letterlijk [YOUR-PASSWORD] heet en wacht je
+            # tot het platform de functie afkapt.
+            if "[your-password]" in value.lower() or "[password]" in value.lower():
+                raise OpslagOntbreekt(
+                    "In DATABASE_URL staat nog de plaatshouder [YOUR-PASSWORD]. Vervang die "
+                    "door het databasewachtwoord dat je bij het aanmaken van het project koos "
+                    "(kwijt? Project Settings > Database > Reset database password)."
+                )
             return value
     if is_hosted():
         raise OpslagOntbreekt(

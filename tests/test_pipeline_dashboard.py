@@ -357,6 +357,37 @@ class TestToegang(unittest.TestCase):
         self.assertIn("DATABASE_URL", pagina)
         self.assertIn("DASHBOARD_PASSWORD", pagina)
 
+    def test_database_problems_are_explained_not_a_bare_500(self):
+        """Een mislukte verbinding liep buiten alle foutafhandeling om en gaf
+        een kale 500. Nu hoort er te staan wat je moet doen."""
+        os.environ["LM_HOSTED"] = "1"
+        os.environ["DASHBOARD_PASSWORD"] = "geheim"
+        os.environ["DATABASE_URL"] = (
+            "postgresql://postgres.abc:[YOUR-PASSWORD]@aws-1-eu-central-1.pooler.supabase.com:5432/postgres"
+        )
+        base = self._start(target=None)
+
+        opener = urllib.request.build_opener(
+            urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        opener.open(urllib.request.Request(base + "/login", data=b"wachtwoord=geheim"), timeout=5)
+        try:
+            opener.open(base + "/api/overview", timeout=15)
+            self.fail("had een foutmelding moeten geven")
+        except urllib.error.HTTPError as exc:
+            self.assertEqual(exc.code, 503)
+            melding = json.loads(exc.read())["fout"]
+        self.assertIn("YOUR-PASSWORD", melding)
+
+    def test_health_check_reports_the_database(self):
+        os.environ["LM_HOSTED"] = "1"
+        os.environ["DASHBOARD_PASSWORD"] = "geheim"
+        os.environ.pop("DATABASE_URL", None)
+        base = self._start()
+        with urllib.request.urlopen(base + "/gezond", timeout=10) as resp:
+            gezond = json.loads(resp.read())
+        self.assertTrue(gezond["klaar"])
+        self.assertIn("bereikbaar", gezond["database"])
+
     def test_health_check_reports_readiness(self):
         os.environ["LM_HOSTED"] = "1"
         os.environ.pop("DASHBOARD_PASSWORD", None)
