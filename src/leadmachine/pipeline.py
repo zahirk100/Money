@@ -9,6 +9,7 @@ deze ophield, want de voortgang staat in de database.
 
 from __future__ import annotations
 
+import json
 import os
 import time
 import traceback
@@ -47,6 +48,12 @@ class Budget:
 
     def ok(self, reserve: float = 0.0) -> bool:
         return self.left > reserve
+
+    def allows(self, reserve: float, gedaan: int) -> bool:
+        """Elke stap doet er minstens een per aanroep. Anders zou een budget dat
+        kleiner is dan de reservering betekenen dat er nooit iets gebeurt, en
+        blijft de machine stilstaan zonder dat iemand ziet waarom."""
+        return gedaan == 0 or self.left > reserve
 
 
 def autopilot_settings(campaign: Campaign) -> dict[str, Any]:
@@ -100,6 +107,51 @@ def _should_discover(store: Store, every_days: int) -> bool:
         return True
 
 
+def _discover_step(
+    campaign: Campaign,
+    store: Store,
+    settings: dict[str, Any],
+    budget: Budget,
+    report: Reporter,
+    force: bool,
+) -> int:
+    """Haalt bedrijven op, een branche per keer.
+
+    Een enkele Overpass-query duurt zomaar tien tot dertig seconden, en met een
+    handvol branches loopt dat ver over wat een serverless functie mag draaien.
+    Daarom wordt na elke branche opgeslagen wat er nog open staat: de volgende
+    aanroep pakt de rest op in plaats van weer vooraan te beginnen.
+    """
+    openstaand = json.loads(database.get_meta(store, "discover_pending") or "[]")
+    if not openstaand:
+        if not (force or _should_discover(store, settings["discover_every_days"])):
+            return 0
+        openstaand = [niche.name for niche in campaign.niches]
+
+    gevonden = 0
+    branches = 0
+    while openstaand and budget.allows(35, branches):
+        naam = openstaand[0]
+        report(f"Bedrijven ophalen: {naam}...")
+        for lead in discover(campaign, source=settings["source"], only_niche=naam):
+            _, is_new = database.upsert_lead(store, lead)
+            gevonden += int(is_new)
+        openstaand.pop(0)
+        branches += 1
+        database.set_meta(store, "discover_pending", json.dumps(openstaand))
+        store.commit()
+
+    if openstaand:
+        report(f"{gevonden} nieuw; nog {len(openstaand)} branches te gaan, volgende beurt verder.")
+    else:
+        database.set_meta(store, "last_discover", stamp())
+        database.set_meta(store, "discover_pending", "[]")
+        store.commit()
+        if gevonden:
+            report(f"{gevonden} nieuwe bedrijven gevonden.")
+    return gevonden
+
+
 def run_cycle(
     campaign: Campaign,
     store: Store,
@@ -123,15 +175,10 @@ def run_cycle(
     try:
         load_suppression_file(store, campaign)
 
-        # 1. Nieuwe bedrijven ophalen - niet elke dag, dat levert toch niets nieuws op.
-        if force_discover or _should_discover(store, settings["discover_every_days"]):
-            report("Bedrijven ophalen uit OpenStreetMap...")
-            for lead in discover(campaign, source=settings["source"]):
-                _, is_new = database.upsert_lead(store, lead)
-                counters["discovered"] += int(is_new)
-            database.set_meta(store, "last_discover", stamp())
-            store.commit()
-            report(f"{counters['discovered']} nieuwe bedrijven gevonden.")
+        # 1. Nieuwe bedrijven ophalen, branche voor branche.
+        counters["discovered"] = _discover_step(
+            campaign, store, settings, budget, report, force_discover
+        )
 
         # 2. Websites beoordelen, zolang er tijd is.
         todo = database.leads_without_audit(store, settings["audits_per_run"])
@@ -144,7 +191,7 @@ def run_cycle(
                 respect_robots=bool(campaign.audit.get("respect_robots", True)),
             )
             for lead in todo:
-                if not budget.ok(reserve=20):
+                if not budget.allows(20, counters["audited"]):
                     report("Tijd op; de volgende beurt gaat verder met beoordelen.")
                     break
                 result = audit_lead(lead, client=client, offline=offline)
@@ -159,7 +206,7 @@ def run_cycle(
             if not row.get("demo_slug") and (row["score"] or 0) >= settings["min_score"]
         ][: settings["demos_per_run"]]
         for row in candidates:
-            if not budget.ok(reserve=12):
+            if not budget.allows(12, counters["demos"]):
                 break
             slug, html = build_demo(row, campaign)
             path = None
@@ -177,7 +224,9 @@ def run_cycle(
         wait_hours = 0 if settings["send_mode"] == "auto" else settings["review_hours"]
         send_after = stamp(now() + timedelta(hours=wait_hours))
         for row in database.ranked_leads(store, limit=settings["mails_per_run"] * 4, with_email=True):
-            if counters["queued"] >= settings["mails_per_run"] or not budget.ok(reserve=10):
+            if counters["queued"] >= settings["mails_per_run"]:
+                break
+            if not budget.allows(10, counters["queued"]):
                 break
             if (row["score"] or 0) < settings["min_score"]:
                 continue

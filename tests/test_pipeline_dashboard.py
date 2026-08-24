@@ -356,6 +356,47 @@ class TestToegang(unittest.TestCase):
         with opener.open(base + "/api/overview", timeout=5) as resp:
             self.assertGreater(json.loads(resp.read())["stats"]["leads"], 0)
 
+    def test_hosted_run_finishes_inside_the_request(self):
+        """Serverless heeft geen achtergrond: een draadje wordt opgeruimd zodra
+        het antwoord verstuurd is. De cyclus moet dus binnen het verzoek af."""
+        os.environ["LM_HOSTED"] = "1"
+        os.environ["DASHBOARD_PASSWORD"] = "geheim"
+        base = self._start()
+        opener = urllib.request.build_opener(
+            urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        opener.open(urllib.request.Request(base + "/login", data=b"wachtwoord=geheim"), timeout=5)
+
+        request = urllib.request.Request(
+            base + "/api/run", method="POST", headers={"X-LM-Token": "token"})
+        with opener.open(request, timeout=120) as resp:
+            uitkomst = json.loads(resp.read())
+        self.assertTrue(uitkomst.get("klaar"))
+        self.assertNotIn("gestart", uitkomst)
+
+    def test_discovery_resumes_where_it_stopped(self):
+        """Met een krap budget moet er toch vooruitgang zijn, en moet de rest
+        onthouden worden in plaats van opnieuw te beginnen."""
+        from leadmachine.pipeline import Budget, _discover_step
+
+        store = database.connect(self.db_path)
+        try:
+            store.execute("DELETE FROM meta")
+            store.execute("DELETE FROM leads")
+            store.commit()
+            camp = campaign()
+            instellingen = {"discover_every_days": 7, "source": "fixture"}
+
+            eerste = _discover_step(camp, store, instellingen, Budget(0.001), lambda _: None, False)
+            openstaand = json.loads(database.get_meta(store, "discover_pending"))
+            self.assertGreater(eerste, 0, "een krap budget mag niet betekenen: niets doen")
+            self.assertTrue(openstaand, "de rest hoort onthouden te worden")
+
+            _discover_step(camp, store, instellingen, Budget(None), lambda _: None, False)
+            self.assertEqual(json.loads(database.get_meta(store, "discover_pending")), [])
+            self.assertIsNotNone(database.get_meta(store, "last_discover"))
+        finally:
+            store.close()
+
     def test_wrong_password_is_refused(self):
         os.environ["LM_HOSTED"] = "1"
         os.environ["DASHBOARD_PASSWORD"] = "geheim"

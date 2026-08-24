@@ -471,8 +471,20 @@ def make_handler(
             store = self._store()
             try:
                 if path == "/api/run":
-                    _run_in_background(campaign, target, "dashboard")
-                    self._json({"gestart": True})
+                    if is_hosted():
+                        # Een achtergronddraadje overleeft het antwoord niet in
+                        # een serverless omgeving: zodra de functie klaar is,
+                        # wordt alles opgeruimd. Dus draaien we hier binnen het
+                        # verzoek, met hetzelfde tijdsbudget als de cron.
+                        budget = float(os.environ.get("CRON_BUDGET_SECONDS", "45"))
+                        counters = run_cycle(
+                            campaign, store, trigger="dashboard",
+                            budget_seconds=budget, report=_log,
+                        )
+                        self._json({"klaar": True, **counters})
+                    else:
+                        _run_in_background(campaign, target, "dashboard")
+                        self._json({"gestart": True})
                 elif path == "/api/send-now":
                     sent, failed = send_due(campaign, store, live=True, report=_log)
                     store.commit()

@@ -450,9 +450,18 @@ document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', (
 }));
 
 document.getElementById('run-btn').addEventListener('click', async () => {
-  document.getElementById('run-btn').disabled = true;
-  await post('/api/run');
-  volgLog();
+  const knop = document.getElementById('run-btn');
+  knop.disabled = true; knop.textContent = 'Bezig...';
+  document.getElementById('log').textContent = 'Bezig... dit kan een minuut duren.';
+  const res = await post('/api/run');
+  if (res.gestart) { volgLog(); return; }      // lokaal: draait op de achtergrond
+  // Live draait de cyclus binnen dit verzoek en is hij nu klaar.
+  document.getElementById('log').textContent = res.fout
+    ? 'Fout: ' + res.fout
+    : `Klaar. ${res.discovered} nieuw, ${res.audited} beoordeeld, ${res.demos} demo's, ` +
+      `${res.queued} klaargezet, ${res.sent} verstuurd.`;
+  knop.disabled = false; knop.textContent = 'Nu draaien';
+  mailCache = []; laadOverzicht();
 });
 document.getElementById('send-due').addEventListener('click', () => actie('/api/send-now'));
 ['q','segment','niche'].forEach(id => document.getElementById(id).addEventListener('input', laadLeads));
