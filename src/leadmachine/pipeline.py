@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -23,6 +24,7 @@ from .audit import audit_lead
 from .config import Campaign, load_dotenv
 from .demo import DEMO_VERSIE, build_demo
 from .discover import discover
+from .gemeenten import alle_gemeenten
 from .http import PoliteClient
 from .outreach import Mailer, OutreachError, draft_email, eligible, load_suppression_file
 from .store import Store, now, stamp
@@ -154,12 +156,21 @@ def _discover_step(
         return 0
 
     # Waar we naar zoeken: elke gemeente maal elke branche.
-    dekking = [
-        f"{gebied}::{niche.name}"
-        for gebied in campaign.areas
-        for niche in campaign.niches
-    ]
-    vingerafdruk = "|".join(sorted(dekking))
+    if campaign.automatisch:
+        # Zelf kiezen: alle gemeenten uit de lijst, in willekeurige volgorde.
+        # De volgorde ligt vast zodra hij is bepaald, zodat een volgende
+        # aanroep verdergaat in plaats van opnieuw te loten.
+        gemeenten = alle_gemeenten()
+        dekking = [f"{gebied}::{niche.name}" for gebied in gemeenten for niche in campaign.niches]
+        random.shuffle(dekking)
+        vingerafdruk = f"auto:{len(gemeenten)}x{len(campaign.niches)}"
+    else:
+        dekking = [
+            f"{gebied}::{niche.name}"
+            for gebied in campaign.areas
+            for niche in campaign.niches
+        ]
+        vingerafdruk = "|".join(sorted(dekking))
     gewijzigd = database.get_meta(store, "discover_dekking") != vingerafdruk
 
     openstaand = json.loads(database.get_meta(store, "discover_pending") or "[]")
@@ -168,7 +179,7 @@ def _discover_step(
         # Zonder deze controle zou hij pas over een week merken dat er iets is
         # veranderd, en tot die tijd dezelfde stad blijven doen.
         nog_niet_gedaan = [combi for combi in dekking if combi not in set(openstaand)]
-        openstaand = openstaand + nog_niet_gedaan if openstaand else dekking
+        openstaand = openstaand + nog_niet_gedaan if openstaand else list(dekking)
         # Alleen combinaties die we nu nog willen.
         openstaand = [combi for combi in openstaand if combi in set(dekking)]
         database.set_meta(store, "discover_dekking", vingerafdruk)

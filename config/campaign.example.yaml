@@ -2,14 +2,17 @@
 # Kopieer naar config/campaign.yaml en pas aan.
 
 region:
-  # Een of meer gemeenten, zoals ze in OpenStreetMap heten. Hij werkt ze een
-  # voor een af en onthoudt waar hij was, dus meer gemeenten is prima; het
-  # duurt alleen langer voordat alles binnen is.
-  # Ook te zetten via LM_AREA, met komma's ertussen.
+  # "auto" laat de machine zelf gemeenten kiezen uit een lijst van 167
+  # Nederlandse gemeenten, in willekeurige volgorde en gemengd met de branches
+  # hieronder. Je hoeft dan niets te bedenken; hij blijft vanzelf leads vinden.
+  #
+  # Wil je een vast gebied, zet dan de namen zoals ze in OpenStreetMap heten:
+  #   areas:
+  #     - "Zwolle"
+  #     - "Kampen"
+  # Ook te zetten via LM_AREA, met komma's ertussen, of LM_AREA=auto.
   areas:
-    - "Zwolle"
-    - "Kampen"
-    - "Deventer"
+    - "auto"
   # Voor NL gemeenten is dit 8, voor een wijk of buurt 10.
   # Controleer een naam via https://nominatim.openstreetmap.org
   admin_level: 8

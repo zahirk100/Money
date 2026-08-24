@@ -578,6 +578,72 @@ class TestToegang(unittest.TestCase):
         self.assertEqual(gebieden, {"Zwolle", "Kampen"})
         self.assertEqual(len(gezien), len(camp.areas) * len(camp.niches))
 
+    def test_automatic_mode_picks_towns_itself(self):
+        """Zonder opgegeven gemeenten hoort de machine zelf combinaties te
+        trekken, zodat er altijd nieuwe leads te vinden zijn."""
+        from leadmachine import pipeline
+        from leadmachine.gemeenten import alle_gemeenten
+
+        gezien = []
+
+        def nep_discover(campaign, source="overpass", only_niche=None, area=None, **rest):
+            gezien.append((area, only_niche))
+            return iter(())
+
+        camp = campaign()
+        camp.areas = ["auto"]
+        self.assertTrue(camp.automatisch)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = database.connect(Path(tmp) / "t.db")
+            echte = pipeline.discover
+            pipeline.discover = nep_discover
+            try:
+                for _ in range(5):
+                    pipeline._discover_step(
+                        camp, store,
+                        {"discover_every_days": 7, "source": "overpass", "backlog_grens": 999},
+                        pipeline.Budget(1.0), lambda _: None, False,
+                    )
+            finally:
+                pipeline.discover = echte
+
+            wachtrij = json.loads(database.get_meta(store, "discover_pending"))
+            store.close()
+
+        bezocht = {gebied for gebied, _ in gezien}
+        self.assertTrue(bezocht <= set(alle_gemeenten()), "alleen bestaande gemeenten")
+        self.assertGreater(len(gezien), 0)
+        # Er blijft genoeg over om door te gaan.
+        self.assertGreater(len(wachtrij), 100)
+
+    def test_automatic_mode_keeps_its_order_between_runs(self):
+        """Elke beurt opnieuw loten zou betekenen dat hij dezelfde gemeenten
+        blijft trekken en andere nooit ziet."""
+        from leadmachine import pipeline
+
+        camp = campaign()
+        camp.areas = ["auto"]
+
+        def nep_discover(*args, **kwargs):
+            return iter(())
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = database.connect(Path(tmp) / "t.db")
+            echte = pipeline.discover
+            pipeline.discover = nep_discover
+            try:
+                instellingen = {"discover_every_days": 7, "source": "overpass", "backlog_grens": 999}
+                pipeline._discover_step(camp, store, instellingen, pipeline.Budget(1.0), lambda _: None, False)
+                eerste = json.loads(database.get_meta(store, "discover_pending"))[:5]
+                pipeline._discover_step(camp, store, instellingen, pipeline.Budget(0.0001), lambda _: None, False)
+                tweede = json.loads(database.get_meta(store, "discover_pending"))[:5]
+            finally:
+                pipeline.discover = echte
+            store.close()
+
+        self.assertEqual(eerste[1:], tweede[:4], "de rij hoort op te schuiven, niet opnieuw geschud")
+
     def test_adding_a_town_restarts_the_search(self):
         """Zonder deze controle bleef hij dezelfde gemeente doen: de wachtrij
         was leeg en 'klaar met zoeken' gold nog een week."""

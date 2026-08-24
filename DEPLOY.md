@@ -74,7 +74,7 @@ om dat uit te sparen.
 | `PUBLIC_BASE_URL` | `https://jouwproject.vercel.app` | ja |
 | `RESEND_API_KEY` | de sleutel uit stap 2 | om te mailen |
 | `LM_SENDER_NAME`, `LM_SENDER_EMAIL`, `LM_COMPANY_NAME`, `LM_COMPANY_ADDRESS`, `LM_KVK`, `LM_PHONE` | je afzendergegevens | om te mailen |
-| `LM_AREA` | de gemeente waar je begint | nee |
+| `LM_AREA` | `auto` (zelf gemeenten kiezen) of eigen gemeenten met komma's | nee |
 | `LM_ENABLED` | `false` om te beginnen | nee |
 
    Drie geheimen genereren:

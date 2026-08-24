@@ -9,6 +9,7 @@ aanwezigheid doen, staan in OSM zonder website-tag. Dat is precies je doelgroep.
 from __future__ import annotations
 
 import json
+import random
 import time
 from pathlib import Path
 from typing import Any, Iterable
@@ -136,11 +137,18 @@ def discover(
                 yield lead
         return
 
+    gebied = area
+    if not gebied:
+        # In de automatische stand is er geen vast gebied; dan kiezen we er een.
+        from .gemeenten import alle_gemeenten
+
+        gebied = random.choice(alle_gemeenten()) if campaign.automatisch else campaign.area
+
     for index, niche in enumerate(niches):
         if index:
             time.sleep(pause)  # Overpass is gratis; niet leegtrekken
         payload = fetch_overpass(
-            build_query(campaign, niche, timeout=max(10, int(timeout) - 5), area=area),
+            build_query(campaign, niche, timeout=max(10, int(timeout) - 5), area=gebied),
             timeout=timeout,
         )
         for element in payload.get("elements", []):

@@ -54,9 +54,14 @@ class Campaign:
         return "cold"
 
     @property
+    def automatisch(self) -> bool:
+        """Zoekt de machine zelf gemeenten uit, in plaats van een vaste lijst?"""
+        return not self.areas or self.areas == ["auto"]
+
+    @property
     def area(self) -> str:
         """De eerste gemeente. Handig voor teksten die er een noemen."""
-        return self.areas[0] if self.areas else ""
+        return self.areas[0] if self.areas and not self.automatisch else "heel Nederland"
 
     def niche(self, name: str) -> Niche | None:
         return next((n for n in self.niches if n.name == name), None)
@@ -110,8 +115,7 @@ def load_campaign(path: str | Path | None = None) -> Campaign:
 
     raw = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
     region = raw.get("region") or {}
-    if not (region.get("areas") or region.get("area")):
-        raise ConfigError("region.areas ontbreekt in de config (bijv. ['Zwolle', 'Kampen']).")
+    # Geen gemeenten opgeven mag: dan kiest de machine ze zelf.
 
     niches = [
         Niche(
