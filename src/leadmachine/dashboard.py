@@ -286,6 +286,23 @@ def make_handler(
         def _store(self) -> Store:
             return open_store(target)
 
+        def _route(self) -> tuple[str, dict[str, list[str]]]:
+            """Het pad waar het verzoek eigenlijk voor bedoeld was.
+
+            Vercel stuurt alles naar deze ene functie. Bij de nieuwere
+            routering komt het verzoek binnen op het pad van de bestemming
+            (/api/index) in plaats van op het oorspronkelijke pad, dus geeft de
+            rewrite dat pad mee als __lm_path. Draait de code ergens anders,
+            dan staat dat er niet en is het pad gewoon het pad.
+            """
+            parsed = urllib.parse.urlparse(self.path)
+            query = urllib.parse.parse_qs(parsed.query)
+            meegegeven = (query.pop("__lm_path", [""]) or [""])[0]
+            path = meegegeven or parsed.path
+            if not path.startswith("/"):
+                path = "/" + path
+            return path, query
+
         def _cookies(self) -> dict[str, str]:
             raw = self.headers.get("Cookie", "")
             out = {}
@@ -324,8 +341,7 @@ def make_handler(
 
         # -- routes ----------------------------------------------------
         def do_GET(self) -> None:  # noqa: N802
-            parsed = urllib.parse.urlparse(self.path)
-            path, query = parsed.path, urllib.parse.parse_qs(parsed.query)
+            path, query = self._route()
 
             if path.startswith("/demo/"):
                 self._serve_demo(path[len("/demo/"):])   # openbaar: dit is de pagina die je klant opent
@@ -383,7 +399,7 @@ def make_handler(
                 store.close()
 
         def do_POST(self) -> None:  # noqa: N802
-            path = urllib.parse.urlparse(self.path).path
+            path, _query = self._route()
 
             if path == "/login":
                 length = int(self.headers.get("Content-Length", 0) or 0)

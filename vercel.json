@@ -13,10 +13,15 @@
     }
   },
   "crons": [
-    { "path": "/api/cron", "schedule": "0 8 * * *" }
+    {
+      "path": "/api/cron",
+      "schedule": "0 8 * * *"
+    }
   ],
   "rewrites": [
-    { "source": "/api/cron", "destination": "/api/cron" },
-    { "source": "/(.*)", "destination": "/api/index" }
+    {
+      "source": "/(.*)",
+      "destination": "/api/index?__lm_path=/$1"
+    }
   ]
 }

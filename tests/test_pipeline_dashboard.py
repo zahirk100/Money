@@ -201,6 +201,24 @@ class TestDashboardServer(unittest.TestCase):
                 urllib.request.urlopen(self.base + attempt, timeout=5)
             self.assertEqual(ctx.exception.code, 404)
 
+    def test_rewritten_path_is_honoured(self):
+        """Vercel stuurt alles naar een functie en geeft het echte pad mee als
+        __lm_path. Zonder dat zou het dashboard op elke URL een 404 geven."""
+        data = self.get("/api/index?__lm_path=/api/overview")
+        self.assertGreater(data["stats"]["leads"], 0)
+
+        with urllib.request.urlopen(self.base + "/api/index?__lm_path=/", timeout=5) as resp:
+            self.assertIn(b"<!doctype html>", resp.read()[:40].lower())
+
+    def test_rewritten_path_keeps_the_query(self):
+        gefilterd = self.get("/api/index?__lm_path=/api/leads&niche=kapper")
+        self.assertTrue(gefilterd)
+        self.assertTrue(all(lead["niche"] == "kapper" for lead in gefilterd))
+
+    def test_rewritten_path_works_for_write_actions(self):
+        result = self.post("/api/index?__lm_path=/api/lead/1/demo", token=self.token)
+        self.assertIn("demo", result)
+
     def test_unknown_route_is_a_clean_404(self):
         with self.assertRaises(urllib.error.HTTPError) as ctx:
             self.get("/api/bestaat-niet")
