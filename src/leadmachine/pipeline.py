@@ -95,13 +95,18 @@ def autopilot_settings(campaign: Campaign) -> dict[str, Any]:
         "send_mode": str(value("send_mode", "review")),
         "review_hours": int(value("review_hours", 12)),
         "min_score": int(value("min_score", 45)),
-        "backlog_grens": int(value("backlog_grens", 40)),
+        "backlog_grens": int(value("backlog_grens", 150)),
         "source": str(value("source", "overpass")),
-        # Bedrijven met een website halen we standaard niet op: die vullen de
-        # lijst, kosten de meeste controletijd, en zijn zelden de klant die je
-        # zoekt. Zet op false als je ook verouderde sites wilt meenemen.
-        "alleen_zonder_website": str(value("alleen_zonder_website", True)).lower()
-                                 not in {"false", "0", "no", "nee"},
+        # Ook bedrijven met een website ophalen. Het klinkt logisch om die over
+        # te slaan, maar OpenStreetMap laat de website-tag bij verreweg de
+        # meeste bedrijven leeg - ook bij bedrijven met een prima site. Filter
+        # je daarop, dan hou je niet de bedrijven zonder website over maar de
+        # bedrijven die slecht zijn ingetekend, en beweert je mail iets wat de
+        # ontvanger meteen kan weerleggen. Een site die aantoonbaar stuk, traag
+        # of niet mobiel is, is bovendien een betere aanleiding dan een
+        # vermoeden. Zet op true als je toch alleen de lege wilt.
+        "alleen_zonder_website": str(value("alleen_zonder_website", False)).lower()
+                                 in {"true", "1", "yes", "ja"},
     }
 
 
@@ -326,6 +331,7 @@ def _audit_step(
 ) -> int:
     """Beoordeelt websites met een paar tegelijk, en slaat op per groepje."""
     gedaan = 0
+    alsnog = 0
 
     def beoordeel(lead: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
         client = None if offline else _client_van_deze_draad(campaign)
@@ -340,12 +346,21 @@ def _audit_step(
                 break
             for lead, resultaat in pool.map(beoordeel, todo[start : start + groep]):
                 resultaat["segment"] = campaign.segment(resultaat["score"])
+                # Zelf een site gevonden die niet in OpenStreetMap stond? Die
+                # hoort bij de lead, zodat we hem later niet nog eens zoeken en
+                # in het dashboard te zien is waar het oordeel over gaat.
+                if resultaat.get("website_gevonden"):
+                    database.set_lead_website(store, lead["id"], resultaat["website_gevonden"])
+                    alsnog += 1
                 database.save_audit(store, lead["id"], resultaat)
                 gedaan += 1
             store.commit()
 
     if gedaan:
-        report(f"{gedaan} websites beoordeeld.")
+        report(
+            f"{gedaan} websites beoordeeld"
+            + (f", waarvan {alsnog} met een site die niet in OpenStreetMap stond." if alsnog else ".")
+        )
     return gedaan
 
 

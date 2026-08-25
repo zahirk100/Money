@@ -212,11 +212,21 @@ autopilot:
   min_score: 45
   # 'overpass' voor echte data, 'fixture' om offline te oefenen.
   source: overpass
-  # Alleen bedrijven zonder eigen website ophalen. Dat scheelt een lijst vol
-  # bedrijven die je toch niet benadert, en zulke leads hoeven ook niet
-  # gecontroleerd te worden - verreweg de traagste stap.
-  # Zet op false als je ook verouderde of kapotte sites wilt meenemen.
-  alleen_zonder_website: true
+  # Alleen bedrijven zonder eigen website ophalen.
+  #
+  # Dit stond op true en dat was een vergissing. OpenStreetMap laat de
+  # website-tag bij verreweg de meeste bedrijven leeg, ook bij bedrijven met
+  # een prima site. Filter je daarop, dan hou je niet de bedrijven zonder
+  # website over maar de bedrijven die slecht zijn ingetekend - en beweert je
+  # mail iets wat de ontvanger met een blik op zijn eigen site weerlegt.
+  #
+  # Met false haalt hij iedereen op, bezoekt hij elke site en beoordeelt hem.
+  # Een site die aantoonbaar een foutmelding geeft, niet op mobiel werkt of er
+  # zes seconden over doet is een veel hardere aanleiding voor een gesprek dan
+  # een vermoeden. Bedrijven waar we geen site van kunnen vinden blijven
+  # gewoon meedoen; de mail zegt dan dat wij er geen konden vinden, en niet
+  # dat die er niet is.
+  alleen_zonder_website: false
 
 offer:
   # Wat je verkoopt. Komt terug in de mail en op de demo-pagina.

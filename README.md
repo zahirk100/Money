@@ -35,12 +35,23 @@ Welke van de twee het wordt, hangt af van een enkele omgevingsvariabele: staat
 er een `DATABASE_URL`, dan praat hij met Postgres, anders met het bestand.
 
 1. **discover** haalt bedrijven op uit OpenStreetMap via de Overpass API.
-   Open data, geen scraping, geen voorwaarden die je schendt. Juist de
-   ondernemers die zelf niets aan hun online aanwezigheid doen staan daar
-   zonder website-tag - dat is precies je doelgroep.
-2. **audit** kijkt of er een site is en of die deugt: bereikbaar, https,
+   Open data, geen scraping, geen voorwaarden die je schendt. Per gemeente een
+   opdracht, met alle branches erin.
+2. **audit** bezoekt hun website en kijkt of die deugt: bereikbaar, https,
    mobiel, laadtijd, titel, omschrijving, contactgegevens, hoe oud hij oogt.
    Elke bevinding levert punten op en een zin die je letterlijk kunt gebruiken.
+
+   Staat er geen website bij het bedrijf, dan zoeken we er eerst zelf een. Dat
+   moet: OpenStreetMap laat de website-tag bij verreweg de meeste bedrijven
+   leeg, ook bij bedrijven met een prima site. Wie daarop filtert houdt niet de
+   bedrijven zonder website over, maar de bedrijven die slecht zijn ingetekend.
+
+   De regel die daaruit volgt geldt overal in deze code: **alleen wat de
+   ondernemer zelf kan nakijken levert punten op.** Een site die een
+   foutmelding geeft, niet op mobiel werkt of er zes seconden over doet - dat
+   opent hij zelf en dan ziet hij het. Wat wij alleen maar vermoeden levert nul
+   punten op en gaat nooit een mail in. Een ondernemer die je op een onwaarheid
+   betrapt, leest je tweede mail niet meer.
 3. **demo** genereert een complete voorbeeldpagina met hun naam, adres,
    telefoonnummer en openingstijden erin. Dit is je verkoopargument: niet
    "ik kan iets voor u maken", maar "het staat er al".

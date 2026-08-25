@@ -1138,3 +1138,30 @@ class TestVolledigsteLeadsEerst(unittest.TestCase):
         met_telefoon = {**kaal, "phone": "0162 111222"}
         _, html2 = build_demo(met_telefoon, camp)
         self.assertIn("const heeftTelefoon = true", html2)
+
+
+class TestOudeOordelenOpnieuw(unittest.TestCase):
+    """Leads die zijn beoordeeld toen "geen website-tag in OpenStreetMap" nog
+    gelijkstond aan "geen website", staan op een oordeel waar we niet meer
+    achter staan. Die horen opnieuw langs de controle."""
+
+    def test_old_no_website_verdicts_are_rechecked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = database.connect(Path(tmp) / "t.db")
+            oud, _ = database.upsert_lead(store, {
+                "osm_type": "node", "osm_id": "1", "name": "Oud oordeel", "niche": "kapper"})
+            nieuw, _ = database.upsert_lead(store, {
+                "osm_type": "node", "osm_id": "2", "name": "Nieuw oordeel", "niche": "kapper"})
+            database.save_audit(store, oud, {
+                "score": 55, "findings": [{"code": "geen_website", "weight": 55, "pitch": "..."}]})
+            database.save_audit(store, nieuw, {
+                "score": 45,
+                "findings": [{"code": "geen_website_gevonden", "weight": 45, "pitch": "..."}]})
+            # Ouder dan een dag maken, anders is er nog niets aan de beurt.
+            store.execute("UPDATE audits SET checked_at = ?", (stamp(now() - timedelta(days=3)),))
+            store.commit()
+
+            namen = [r["name"] for r in database.leads_needing_recheck(store)]
+            self.assertIn("Oud oordeel", namen)
+            self.assertNotIn("Nieuw oordeel", namen)
+            store.close()

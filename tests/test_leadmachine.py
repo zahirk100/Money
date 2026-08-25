@@ -84,11 +84,64 @@ class TestDiscover(unittest.TestCase):
         self.assertEqual(lead["lat"], 52.5)
 
 
+class _KapotteSite:
+    """Een server die netjes antwoordt met een foutmelding. Dat is bewijs dat
+    de ondernemer zelf kan nakijken: hij opent zijn eigen link en ziet het."""
+
+    def get(self, url, pogingen=2):
+        from leadmachine.http import Fetched
+
+        return Fetched(ok=False, url=url, final_url=url, status_code=500, html="",
+                       elapsed_ms=120, bytes=0, error=None)
+
+
+class _OnbereikbareSite:
+    """Geen antwoord. Kan van alles zijn: een firewall die servers weert, een
+    hapering onderweg. Wij weten alleen dat wij er niet bij konden."""
+
+    def get(self, url, pogingen=2):
+        from leadmachine.http import Fetched
+
+        return Fetched(ok=False, url=url, final_url=url, status_code=None, html="",
+                       elapsed_ms=0, bytes=0, error="connectie geweigerd")
+
+
+class _GevondenSite:
+    """Doet alsof er op de geraden domeinnaam een werkende site staat."""
+
+    def __init__(self, url, html):
+        self.url, self.html = url, html
+
+    def get(self, url, pogingen=2):
+        from leadmachine.http import Fetched
+
+        if url != self.url:
+            return Fetched(ok=False, url=url, final_url=url, status_code=404, html="",
+                           elapsed_ms=30, bytes=0)
+        return Fetched(ok=True, url=url, final_url=url, status_code=200, html=self.html,
+                       elapsed_ms=400, bytes=len(self.html))
+
+
 class TestAudit(unittest.TestCase):
-    def test_no_website_scores_hot(self):
+    def test_no_website_found_is_a_warm_lead_not_a_hot_one(self):
+        """Wij hebben gezocht en niets gevonden. Dat is iets anders dan weten
+        dat er geen site is: OpenStreetMap laat de website-tag bijna altijd
+        leeg, en niet elke ondernemer noemt zijn bedrijf naar zijn domein. Een
+        aantoonbaar kapotte site hoort dus zwaarder te wegen dan dit."""
         result = audit_lead({"name": "Kapper X", "website": None}, offline=True)
-        self.assertGreaterEqual(result["score"], campaign().hot_threshold)
-        self.assertEqual(campaign().segment(result["score"]), "hot")
+        self.assertEqual(campaign().segment(result["score"]), "warm")
+        self.assertGreaterEqual(result["score"], 45)   # nog altijd de moeite waard
+        code = result["findings"][0]
+        self.assertEqual(code["code"], "geen_website_gevonden")
+        self.assertIn("kon online geen", code["pitch"])
+
+    def test_a_broken_site_outweighs_a_site_we_could_not_find(self):
+        """Wie de link opent en een foutmelding krijgt, kan het zelf zien. Dat
+        is het soort aanleiding waar een mail op mag leunen."""
+        niets = audit_lead({"name": "Kapper X", "website": None}, offline=True)
+        kapot = audit_lead({"name": "Kapper Y", "website": "http://kapper-y.example.com"},
+                           client=_KapotteSite(), offline=False)
+        self.assertGreater(kapot["score"], niets["score"])
 
     def test_social_only_is_flagged(self):
         result = audit_lead(
@@ -325,8 +378,10 @@ class TestOutreach(unittest.TestCase):
         self.assertIn(campaign().outreach["company_address"], message["body"])
 
     def test_draft_does_not_repeat_the_same_finding_twice(self):
-        body = draft_email(self._row(), campaign())["body"]
-        self.assertEqual(body.count("er is online geen eigen website te vinden"), 1)
+        # De mail breekt af op 72 tekens, dus eerst de regelafbrekingen eruit:
+        # anders zoek je naar een zin die halverwege een regeleinde staat.
+        body = " ".join(draft_email(self._row(), campaign())["body"].split())
+        self.assertEqual(body.count("kon online geen eigen website van jullie vinden"), 1)
 
     def test_suppressed_lead_is_skipped(self):
         database.suppress(self.store, "info@voorbeeld.example.com")
@@ -643,3 +698,97 @@ class TestGemeenteInEenOpdracht(unittest.TestCase):
         uitkomst = niche_van({"shop": "car_repair", "shop:motorcycle": "yes"}, camp.niches)
         self.assertEqual(uitkomst, "garage")
         self.assertLess(volgorde.index("garage"), volgorde.index("autohandel"))
+
+
+class TestGeenLozeBeweringen(unittest.TestCase):
+    """De hele aanpak staat of valt hiermee: alles wat in een mail staat moet
+    de ondernemer zelf kunnen nakijken. Een ondernemer die je op een onwaarheid
+    betrapt, leest je tweede mail niet meer."""
+
+    def test_a_site_we_could_not_reach_is_never_mailed_about(self):
+        import tempfile as _tempfile
+
+        from leadmachine.outreach import eligible
+
+        with _tempfile.TemporaryDirectory() as tmp:
+            store = database.connect(Path(tmp) / "t.db")
+            lead_id, _ = database.upsert_lead(store, {
+                "osm_type": "node", "osm_id": "1", "name": "Beautylogy", "niche": "kapper",
+                "email": "info@example.com", "website": "https://beautylogy.example.com",
+            })
+            database.save_audit(store, lead_id, {
+                "score": 60, "segment": "hot", "reachable": 0,
+                "findings": [
+                    {"code": "niet_kunnen_controleren", "weight": 0, "pitch": "..."},
+                    {"code": "geen_https", "weight": 12, "pitch": "..."},
+                ],
+            })
+            store.commit()
+            rij = database.ranked_leads(store, with_email=True)[0]
+            ok, reden = eligible(store, rij, campaign())
+            self.assertFalse(ok, "hier weten we niet wat de ondernemer zelf ziet")
+            self.assertIn("niet kunnen bekijken", reden)
+            store.close()
+
+    def test_a_provable_problem_carries_a_mail_on_its_own(self):
+        """Een site die een foutmelding geeft is de sterkste aanleiding die er
+        is: de ondernemer opent zijn eigen link en ziet hem."""
+        camp = campaign()
+        kapot = audit_lead({"name": "Kapper Y", "website": "http://kapper-y.example.com"},
+                           client=_KapotteSite(), offline=False)
+        self.assertGreaterEqual(kapot["score"], camp.min_score if hasattr(camp, "min_score") else 45)
+        self.assertEqual(camp.segment(kapot["score"]), "hot")
+
+    def test_an_unreachable_site_scores_nothing(self):
+        result = audit_lead({"name": "X", "website": "https://x.example.com"},
+                            client=_OnbereikbareSite(), offline=False)
+        self.assertEqual(result["score"], 0)
+        self.assertEqual(result["findings"][0]["code"], "niet_kunnen_controleren")
+
+
+class TestZelfEenSiteZoeken(unittest.TestCase):
+    """OpenStreetMap laat de website-tag bijna altijd leeg. Voordat we ergens
+    beweren dat een bedrijf geen site heeft, kijken we zelf."""
+
+    def test_obvious_domains_are_tried(self):
+        from leadmachine.zoek_site import kandidaten
+
+        self.assertEqual(
+            kandidaten("Garage Dijkzicht"),
+            ["https://www.garagedijkzicht.nl", "https://www.dijkzicht.nl"],
+        )
+        # Resten van "B.V." horen niet in een domeinnaam.
+        self.assertNotIn("bv", "".join(kandidaten("Autobedrijf Kramer B.V.")))
+        # Zonder eigen naam valt er niets te raden.
+        self.assertEqual(kandidaten("Salon"), [])
+
+    def test_a_found_site_is_audited_instead_of_assumed_missing(self):
+        gevonden = audit_lead(
+            {"name": "Garage Dijkzicht", "website": None},
+            client=_GevondenSite("https://www.garagedijkzicht.nl",
+                                 "<html><body>Welkom bij Garage Dijkzicht</body></html>"),
+            offline=False,
+        )
+        codes = {f["code"] for f in gevonden["findings"]}
+        self.assertNotIn("geen_website_gevonden", codes)
+        self.assertEqual(gevonden["website_gevonden"], "https://www.garagedijkzicht.nl")
+
+    def test_a_stranger_site_on_that_domain_is_not_accepted(self):
+        """Op dijkzicht.nl kan net zo goed een makelaar zitten. Die site aan
+        deze lead plakken is erger dan niets vinden: dan beoordelen we iemand
+        anders zijn website."""
+        resultaat = audit_lead(
+            {"name": "Garage Dijkzicht", "website": None},
+            client=_GevondenSite("https://www.garagedijkzicht.nl",
+                                 "<html><body>Camping De Vier Jaargetijden</body></html>"),
+            offline=False,
+        )
+        self.assertEqual(resultaat["findings"][0]["code"], "geen_website_gevonden")
+        self.assertIsNone(resultaat["website_gevonden"])
+
+    def test_a_phone_number_on_the_page_is_proof_too(self):
+        from leadmachine.zoek_site import _herkent_bedrijf
+
+        lead = {"name": "Zaak", "phone": "0570 123456"}
+        self.assertTrue(_herkent_bedrijf("<p>Bel 0570 123456</p>", "Zaak", lead))
+        self.assertFalse(_herkent_bedrijf("<p>Bel 0299 999888</p>", "Zaak", lead))

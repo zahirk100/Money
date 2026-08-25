@@ -159,6 +159,11 @@ def eligible(store: Any, lead: dict[str, Any], campaign: Campaign) -> tuple[bool
         return False, "geen mailadres bekend"
     if is_suppressed(store, email):
         return False, "staat op de afmeldlijst"
+    # Konden we de site niet bereiken, dan weten we niet hoe hij eruitziet. Dan
+    # is er ook geen aanleiding om over te beginnen, en gokken kost je de lead.
+    findings = lead["findings"] if "findings" in lead.keys() else None
+    if findings and "niet_kunnen_controleren" in str(findings):
+        return False, "website niet kunnen bekijken; eerst zelf nakijken"
     previous = last_contact(store, lead["id"])
     if previous:
         cooldown = int(campaign.outreach.get("cooldown_days", 90))

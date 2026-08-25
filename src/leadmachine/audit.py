@@ -3,6 +3,13 @@
 Elke bevinding levert punten op en een zin die je letterlijk in je mail of
 telefoongesprek kunt gebruiken. Dat is het hele punt: de audit schrijft je
 openingszin voor je.
+
+Een regel die overal in dit bestand doorwerkt: alleen dingen die de ondernemer
+zelf kan nakijken leveren punten op. Een site die een foutmelding geeft, niet
+op mobiel werkt of er zes seconden over doet - dat opent hij zelf en dan ziet
+hij het. Wat wij alleen maar vermoeden ("wij konden er niet bij") levert nul
+punten op en hoort nooit in een mail te staan. Een ondernemer die je op een
+onwaarheid betrapt, leest je tweede mail niet meer.
 """
 
 from __future__ import annotations
@@ -55,22 +62,37 @@ def audit_lead(
         "reachable": None, "final_url": None, "status_code": None, "https": None,
         "mobile_ready": None, "title": None, "description": None, "load_ms": None,
         "html_bytes": None, "has_contact": None, "copyright_year": None,
-        "platform": None, "findings": [], "score": 0,
+        "platform": None, "findings": [], "score": 0, "website_gevonden": None,
     }
     findings: list[dict[str, Any]] = []
 
     if not website:
-        findings.append(_finding(
-            "geen_website", 55,
-            "er is online geen eigen website te vinden; wie in Google zoekt, "
-            "komt bij een concurrent uit."))
-        result["findings"] = findings
-        result["score"] = _total(findings)
-        return result
+        # OpenStreetMap laat de website-tag bij verreweg de meeste bedrijven
+        # leeg, ook bij bedrijven met een prima site. Voordat we ergens beweren
+        # dat iemand geen website heeft, gaan we zelf kijken. Vinden we er een,
+        # dan beoordelen we die alsof hij gewoon in de tags stond.
+        if not (offline or client is None):
+            from .zoek_site import zoek_website
+
+            gevonden = zoek_website(lead, client)
+            if gevonden:
+                website = gevonden
+                result["website_gevonden"] = gevonden
+
+        if not website:
+            findings.append(_finding(
+                "geen_website_gevonden", 45,
+                "ik kon online geen eigen website van jullie vinden; wie in Google "
+                "zoekt, komt dan al snel bij een concurrent uit.",
+                detail=("Gezocht op de voor de hand liggende domeinnamen. Geen bewijs dat "
+                        "er geen site is - even zelf nakijken voordat je dit noemt.")))
+            result["findings"] = findings
+            result["score"] = _total(findings)
+            return result
 
     if SOCIAL_ONLY.search(website):
         findings.append(_finding(
-            "alleen_social", 38,
+            "alleen_social", 44,
             "de enige online plek is een socialmediapagina - je bent afhankelijk "
             "van dat platform en je bent slecht vindbaar in Google."))
 
@@ -105,7 +127,7 @@ def audit_lead(
             # De server heeft geantwoord, met een foutmelding. Dat is hard te
             # maken: wie de link opent krijgt hetzelfde te zien.
             findings.append(_finding(
-                "site_geeft_fout", 42,
+                "site_geeft_fout", 50,
                 f"wie de website opent krijgt een foutmelding ({fetched.status_code}) "
                 "in plaats van de pagina.",
                 detail=f"HTTP-status {fetched.status_code} op {fetched.final_url}"))
@@ -136,7 +158,7 @@ def _analyse_html(fetched: Fetched, result: dict[str, Any]) -> list[dict[str, An
 
     if PARKED.search(fetched.html[:6000]) or len(text) < 200:
         findings.append(_finding(
-            "lege_site", 32,
+            "lege_site", 46,
             "op het domein staat nu alleen een lege of standaardpagina."))
 
     title = (soup.title.string or "").strip() if soup.title and soup.title.string else ""

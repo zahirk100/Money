@@ -156,18 +156,24 @@ def leads_without_audit(store: Store, limit: int | None = None) -> list[dict[str
 
 
 def leads_needing_recheck(store: Store, uren: int = 24, limit: int = 50) -> list[dict[str, Any]]:
-    """Bedrijven waarvan we de website niet konden bereiken.
+    """Oordelen die opnieuw moeten.
 
-    Dat oordeel zegt niets over die site; het kan een hapering zijn geweest.
-    Zulke leads blijven anders voor altijd op nul staan, dus proberen we het
-    later opnieuw.
+    Twee gevallen. Ten eerste: bedrijven waarvan we de website niet konden
+    bereiken. Dat oordeel zegt niets over die site; het kan een hapering zijn
+    geweest, en zulke leads blijven anders voor altijd op nul staan.
+
+    Ten tweede: oordelen uit de tijd dat "geen website-tag in OpenStreetMap"
+    gelijkstond aan "geen website". Die bewering hield geen stand, dus die
+    leads gaan opnieuw langs de controle - inclusief het zelf zoeken naar een
+    site. Zonder dit blijven de leads van voor die wijziging op een oordeel
+    staan waar we niet meer achter staan.
     """
     grens = stamp(now() - timedelta(hours=uren))
     return store.execute(
         "SELECT l.* FROM leads l JOIN audits a ON a.lead_id = l.id "
-        "WHERE a.findings LIKE ? AND a.checked_at < ? "
+        "WHERE (a.findings LIKE ? OR a.findings LIKE ?) AND a.checked_at < ? "
         f"ORDER BY a.checked_at LIMIT {int(limit)}",
-        ("%niet_kunnen_controleren%", grens),
+        ("%niet_kunnen_controleren%", '%"geen_website"%', grens),
     )
 
 
@@ -210,6 +216,11 @@ def ranked_leads(
     if limit:
         sql.append(f"LIMIT {int(limit)}")
     return store.execute("\n".join(sql), params)
+
+
+def set_lead_website(store: Store, lead_id: int, website: str) -> None:
+    """Legt vast dat we alsnog een website hebben gevonden voor dit bedrijf."""
+    store.execute("UPDATE leads SET website = ? WHERE id = ?", (website, lead_id))
 
 
 def leads_needing_demo(
