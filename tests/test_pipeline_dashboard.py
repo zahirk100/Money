@@ -1088,3 +1088,53 @@ class TestKnopDoorbreektPauze(unittest.TestCase):
 
         self.assertIn(f"op pauze tot {klok(einde)}", log)
         self.assertNotIn(einde.strftime("%H:%M"), log.split("pauze tot ")[1][:6])
+
+
+class TestVolledigsteLeadsEerst(unittest.TestCase):
+    """Een pagina met openingstijden en een telefoonnummer overtuigt; een
+    pagina met alleen een straatnaam werkt tegen je. Nu er per gemeente
+    honderden bedrijven binnenkomen, mag de machine kieskeurig zijn."""
+
+    def test_the_richest_lead_gets_its_demo_first(self):
+        from leadmachine.demo import DEMO_VERSIE
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = database.connect(Path(tmp) / "t.db")
+            bedrijven = [
+                ("Kaal", {}),
+                ("Alleen straat", {"street": "Dorpsstraat"}),
+                ("Straat en telefoon", {"street": "Dorpsstraat", "phone": "0162 111222"}),
+                ("Compleet", {"street": "Dorpsstraat", "phone": "0162 111222",
+                              "opening_hours": "Mo-Fr 09:00-17:00", "email": "info@example.com"}),
+            ]
+            for i, (naam, extra) in enumerate(bedrijven):
+                lead_id, _ = database.upsert_lead(store, {
+                    "osm_type": "node", "osm_id": f"v{i}", "name": naam,
+                    "niche": "garage", "city": "Dongen", "source": "test", **extra,
+                })
+                database.save_audit(store, lead_id, {"score": 55, "segment": "hot",
+                                                     "findings": [], "reachable": 0})
+            store.commit()
+
+            volgorde = [
+                rij["name"] for rij in
+                database.leads_needing_demo(store, limit=4, min_score=45, versie=DEMO_VERSIE)
+            ]
+            self.assertEqual(volgorde[0], "Compleet")
+            self.assertEqual(volgorde[1], "Straat en telefoon")
+            self.assertEqual(volgorde[-1], "Kaal")
+            store.close()
+
+    def test_a_page_without_hours_or_phone_does_not_say_call_us(self):
+        from leadmachine.config import load_campaign
+        from leadmachine.demo import build_demo
+
+        camp = load_campaign(EXAMPLE_CONFIG)
+        kaal = {"name": "Garage Kaal", "niche": "garage", "city": "Dongen",
+                "osm_id": "1", "street": "Stevensweg", "raw": "{}"}
+        _, html = build_demo(kaal, camp)
+        self.assertIn("const heeftTelefoon = false", html)
+
+        met_telefoon = {**kaal, "phone": "0162 111222"}
+        _, html2 = build_demo(met_telefoon, camp)
+        self.assertIn("const heeftTelefoon = true", html2)

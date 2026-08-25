@@ -580,7 +580,7 @@ def slugify(value: str) -> str:
 # Verandert het ontwerp, dan hoort dit nummer op te lopen. De cyclus bouwt
 # demo's met een ouder nummer opnieuw, zodat een verbetering ook terechtkomt
 # bij bedrijven waarvoor al eerder een pagina is gemaakt.
-DEMO_VERSIE = "4"
+DEMO_VERSIE = "5"
 
 
 def kaart_embed(lat: float | None, lon: float | None) -> str | None:

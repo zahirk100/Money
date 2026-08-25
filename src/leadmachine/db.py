@@ -232,9 +232,18 @@ def leads_needing_demo(
         "LEFT JOIN demos d ON d.lead_id = l.id\n"
         "WHERE a.score >= ?\n"
         "  AND (d.slug IS NULL OR d.versie IS NULL OR d.versie <> ?)\n"
-        # Nieuwste eerst: wie net binnenkomt heeft nog geen pagina, en zo blijft
-        # de machine ook zichtbaar bezig na een verse zoekronde.
-        "ORDER BY a.score DESC, l.id DESC\n"
+        # Eerst de bedrijven waar we het meeste van weten. Een pagina met
+        # openingstijden en een telefoonnummer erop overtuigt; een pagina met
+        # alleen een straatnaam werkt tegen je. Nu er per gemeente honderden
+        # bedrijven binnenkomen, kunnen we ons die keuze veroorloven.
+        "ORDER BY a.score DESC,\n"
+        "  (CASE WHEN l.phone IS NOT NULL AND l.phone <> '' THEN 2 ELSE 0 END\n"
+        "   + CASE WHEN l.opening_hours IS NOT NULL AND l.opening_hours <> '' THEN 2 ELSE 0 END\n"
+        "   + CASE WHEN l.street IS NOT NULL AND l.street <> '' THEN 1 ELSE 0 END\n"
+        "   + CASE WHEN l.email IS NOT NULL AND l.email <> '' THEN 1 ELSE 0 END) DESC,\n"
+        # En bij gelijke stand de nieuwste, zodat een verse zoekronde ook echt
+        # iets nieuws oplevert.
+        "  l.id DESC\n"
         f"LIMIT {int(limit)}",
         (min_score, versie),
     )

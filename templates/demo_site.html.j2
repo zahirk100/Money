@@ -264,8 +264,8 @@
 
 <div class="voorstel">
   <div class="wrap">
-    <b>Vrijblijvend voorbeeld</b> &mdash; gemaakt door {{ afzender.company_name }} als voorstel,
-    dit is <b>geen offici&euml;le website van {{ lead.naam }}</b>.
+    <b>Vrijblijvend voorbeeld.</b> Gemaakt door {{ afzender.company_name }} als voorstel.
+    Dit is <b>geen offici&euml;le website van {{ lead.naam }}</b>.
     <a href="mailto:{{ afzender.sender_email }}">Reageren?</a>
   </div>
 </div>
@@ -407,22 +407,30 @@
 <section id="contact">
   <div class="wrap">
     <h2 class="titel op">Contact</h2>
-    <p class="onder op">Bellen mag altijd. Wie liever schrijft, gebruikt straks dit formulier &mdash;
-      dat komt dan rechtstreeks in uw mailbox binnen.</p>
+    <p class="onder op">Bellen mag altijd. Wie liever schrijft, gebruikt straks dit formulier.
+      Dat komt dan rechtstreeks in uw mailbox binnen.</p>
     <div class="contact">
       <div class="formulier op">
         <div class="veld"><label for="n">Naam</label><input id="n" placeholder="Uw naam" disabled></div>
         <div class="veld"><label for="e">E-mail of telefoon</label><input id="e" placeholder="Waar kunnen we u bereiken?" disabled></div>
         <div class="veld"><label for="b">Bericht</label><textarea id="b" placeholder="Waar kunnen we mee helpen?" disabled></textarea></div>
         <span class="knop" style="cursor:default">Versturen</span>
-        <p class="let">Dit formulier is nog niet aangesloten &mdash; het hoort bij het voorstel.</p>
+        <p class="let">Dit formulier is nog niet aangesloten. Het hoort bij het voorstel.</p>
       </div>
       <div class="kaartje op">
         <div class="info">
           <div class="t" style="font-size:.79rem;color:var(--muted);text-transform:uppercase;
-               letter-spacing:.03em;font-weight:600">Liever direct</div>
+               letter-spacing:.03em;font-weight:600">{% if lead.telefoon or lead.email %}Liever direct{% else %}Waar u ons vindt{% endif %}</div>
           <p style="margin:8px 0 20px;color:var(--ink-2);font-size:.95rem">
-            Een telefoontje is meestal sneller geregeld dan een bericht.</p>
+            {% if lead.telefoon %}
+            Een telefoontje is meestal sneller geregeld dan een bericht.
+            {% elif lead.email %}
+            Een mail mag ook; we lezen hem dezelfde dag.
+            {% else %}
+            {# Zonder telefoonnummer of mailadres is "bel ons" een loze zin. #}
+            Loop gerust binnen tijdens openingstijden, of laat hiernaast een
+            bericht achter.
+            {% endif %}</p>
           {% if lead.telefoon %}
           <a class="knop" href="tel:{{ telefoon_href }}" style="width:100%;justify-content:center">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
@@ -524,6 +532,7 @@
 (() => {
   const week = {{ week|tojson }};
   const heeftTijdenSectie = {{ 'true' if (week or openingstijden_tekst) else 'false' }};
+  const heeftTelefoon = {{ 'true' if lead.telefoon else 'false' }};
 
   // Nu open of niet: dat is het eerste wat iemand wil weten.
   function toonStatus(){
@@ -532,9 +541,18 @@
     const onder = document.getElementById('status-onder');
     if (!week.length){
       // Staat er geen openingstijdensectie op de pagina, dan is verwijzen naar
-      // "hieronder" onzin: dan is bellen het antwoord.
-      tekst.textContent = heeftTijdenSectie ? 'Openingstijden' : 'Bel voor onze openingstijden';
-      onder.textContent = heeftTijdenSectie ? 'Zie hieronder' : 'We staan u graag te woord';
+      // "hieronder" onzin. En staat er ook geen telefoonnummer op, dan is
+      // "bel ons" dat net zo goed: dan wijzen we naar het contactformulier.
+      if (heeftTijdenSectie){
+        tekst.textContent = 'Openingstijden';
+        onder.textContent = 'Zie hieronder';
+      } else if (heeftTelefoon){
+        tekst.textContent = 'Bel voor onze openingstijden';
+        onder.textContent = 'We staan u graag te woord';
+      } else {
+        tekst.textContent = 'Openingstijden op aanvraag';
+        onder.textContent = 'Laat hieronder een bericht achter';
+      }
       return;
     }
 
